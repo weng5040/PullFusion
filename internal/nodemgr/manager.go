@@ -54,6 +54,17 @@ func (m *Manager) initNodes(cfg *config.Config) {
 		})
 	}
 
+	// Direct dockerhub (lowest priority fallback)
+	m.nodes = append(m.nodes, &Node{
+		URL:         "https://registry-1.docker.io",
+		DisplayName: "dockerhub-direct",
+		Type:        NodeTypeMirror,
+		Priority:    1,
+		Enabled:     true,
+		Healthy:     true,
+		Targets:     []string{"dockerhub"},
+	})
+
 	// Ghcr mirrors
 	for _, mirror := range cfg.Mirrors.Ghcr {
 		m.nodes = append(m.nodes, &Node{
@@ -101,7 +112,7 @@ func (m *Manager) initNodes(cfg *config.Config) {
 			URL:         url,
 			DisplayName: url,
 			Type:        NodeTypeMirror,
-			Priority:    99, // 内置节点最低优先级
+			Priority:    1, // 内置节点最低优先级
 			Enabled:     true,
 			Healthy:     true,
 			Targets:     []string{"dockerhub"},
@@ -118,7 +129,7 @@ func (m *Manager) initNodes(cfg *config.Config) {
 			URL:         url,
 			DisplayName: url,
 			Type:        NodeTypeMirror,
-			Priority:    99,
+			Priority:    1,
 			Enabled:     true,
 			Healthy:     true,
 			Targets:     []string{"ghcr"},
