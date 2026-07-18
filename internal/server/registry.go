@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -29,19 +30,17 @@ func NewRegistryServer(cfg *config.Config, deps *Dependencies) (*http.Server, er
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.RealIP)
 
-	// Registry API V2 路由
+	// Registry API V2 路由 — 使用中间件拦截所有 /v2/ 路径
 	regHandler := registry.NewHandler(cfg, deps.NodeMgr, deps.Downloader)
 
-	r.Get("/v2/", regHandler.V2Ping)
-	r.Head("/v2/", regHandler.V2Ping)
-	r.Get("/v2/{name:.+}/manifests/{reference}", regHandler.GetManifest)
-	r.Head("/v2/{name:.+}/manifests/{reference}", regHandler.GetManifest)
-	r.Get("/v2/{name:.+}/blobs/{digest}", regHandler.GetBlob)
-	r.Head("/v2/{name:.+}/blobs/{digest}", regHandler.GetBlob)
-
-	// 上传端返回 405
-	r.Post("/v2/{name:.+}/blobs/uploads/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/v2/") {
+				regHandler.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
 	})
 
 	// 健康检查

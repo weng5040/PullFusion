@@ -1,6 +1,15 @@
 #!/bin/sh
 set -e
 
+# Pass through --help or -h directly
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h|help)
+            exec /app/kspeeder-lite "$@"
+            ;;
+    esac
+done
+
 CONFIG="${KS_CONFIG:-/config/nodes.yaml}"
 
 if [ ! -f "$CONFIG" ]; then
@@ -8,4 +17,4 @@ if [ ! -f "$CONFIG" ]; then
     CONFIG="/app/configs/nodes.sample.yaml"
 fi
 
-exec /app/kspeeder-lite -config "$CONFIG"
+exec /app/kspeeder-lite -config "$CONFIG" "$@"

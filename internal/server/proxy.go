@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -120,6 +121,10 @@ func (h *connectHandler) handleRegistryTunnel(w http.ResponseWriter, r *http.Req
 	// 使用 bufio.Reader 读取隧道内的 HTTP 请求
 	reader := bufio.NewReader(clientConn)
 
+	// 为整个隧道创建可取消的 context，隧道关闭时自动取消所有进行中的请求
+	tunnelCtx, tunnelCancel := context.WithCancel(context.Background())
+	defer tunnelCancel()
+
 	for {
 		// 使用 http.ReadRequest 读取完整的 HTTP 请求
 		req, err := http.ReadRequest(reader)
@@ -133,6 +138,9 @@ func (h *connectHandler) handleRegistryTunnel(w http.ResponseWriter, r *http.Req
 		if req.URL == nil {
 			req.URL = &url.URL{}
 		}
+
+		// 将请求绑定到隧道 context，确保隧道关闭时触发的下载能取消
+		req = req.WithContext(tunnelCtx)
 
 		// 创建 ResponseWriter 包装 clientConn（流式写入）
 		respWriter := &tunnelResponseWriter{
