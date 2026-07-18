@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pullfusion/pullfusion/internal/downloader"
+	"github.com/pullfusion/pullfusion/internal/fetcher"
 	"github.com/pullfusion/pullfusion/internal/nodemgr"
 )
 
@@ -134,6 +135,16 @@ func (a *API) TestNode(w http.ResponseWriter, r *http.Request) {
 		"status": "testing",
 		"node":   target.URL,
 	})
+}
+
+// FetchNodes POST /admin/nodes/fetch — 从远程源抓取免费节点
+func (a *API) FetchNodes(w http.ResponseWriter, r *http.Request) {
+	result, err := fetcher.FetchAndMerge(r.Context(), a.nodeMgr)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 // Stats GET /admin/stats

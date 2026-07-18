@@ -268,3 +268,10 @@ func (m *Manager) GetHealthStatus() (total, healthy int) {
 	}
 	return
 }
+
+// AddNode 动态添加节点（线程安全），fetcher 等模块使用
+func (m *Manager) AddNode(node *Node) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.nodes = append(m.nodes, node)
+}
