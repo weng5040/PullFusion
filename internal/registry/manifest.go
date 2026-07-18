@@ -69,6 +69,13 @@ func (h *Handler) proxyManifest(w http.ResponseWriter, r *http.Request, name, re
 		}
 	}
 
+	// 获取 dockerhub token
+	if registry == "dockerhub" && h.tokenSvc != nil {
+		if tok, err := h.tokenSvc.GetToken(r.Context(), registry, name); err == nil && tok != "" {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
+	}
+
 	// 透传关键 headers
 	copyHeader(req.Header, r.Header, "Accept")
 	copyHeader(req.Header, r.Header, "Authorization")

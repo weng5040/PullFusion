@@ -99,6 +99,10 @@ func (h *Handler) headBlob(w http.ResponseWriter, r *http.Request, name, digest,
 		if tok, err := h.tokenSvc.GetToken(r.Context(), registry, name); err == nil && tok != "" {
 			req.Header.Set("Authorization", "Bearer "+tok)
 		}
+	} else if h.tokenSvc != nil && registry == "dockerhub" {
+		if tok, err := h.tokenSvc.GetToken(r.Context(), registry, name); err == nil && tok != "" {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
 	}
 
 	resp, err := http.DefaultClient.Do(req)
