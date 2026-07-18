@@ -33,10 +33,11 @@ func NewConnectProxy(cfg *config.Config, deps *Dependencies) *http.Server {
 	// 管理 API
 	adminAPI := admin.NewAPI(deps.NodeMgr)
 	r.Get("/healthz", healthzHandler(deps))
-r.Get("/dashboard", adminAPI.ServeDashboard)
+	r.Get("/dashboard", adminAPI.ServeDashboard)
 	r.Get("/", adminAPI.ServeDashboard)
 	r.Get("/admin/nodes", adminAPI.ListNodes)
 	r.Post("/admin/nodes/{id}/test", adminAPI.TestNode)
+	r.Post("/admin/nodes/fetch", adminAPI.FetchNodes)
 	r.Get("/admin/stats", adminAPI.Stats)
 	r.Post("/admin/config/reload", adminAPI.ReloadConfig)
 

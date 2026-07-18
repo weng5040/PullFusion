@@ -198,6 +198,13 @@ footer {
 
 <div class="container">
 
+  <button id="fetch-nodes-btn" onclick="fetchFreeNodes()" 
+    style="background: linear-gradient(135deg, #7c3aed, #a855f7); color: white; border: none; 
+    padding: 8px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; margin-bottom: 12px;">
+    🔄 获取免费节点
+  </button>
+  <span id="fetch-status" style="margin-left: 12px; font-size: 13px;"></span>
+
   <div class="stats-grid" id="statsGrid">
     <div class="stat-card blue">
       <div class="label">总节点数</div>
@@ -526,6 +533,33 @@ async function testNode(url, btn) {
       btn.textContent = '\u26A1 测速';
     }, 3000);
   }
+}
+
+async function fetchFreeNodes() {
+    var btn = document.getElementById('fetch-nodes-btn');
+    var status = document.getElementById('fetch-status');
+    btn.disabled = true;
+    btn.textContent = '⏳ 正在抓取...';
+    status.textContent = '';
+    
+    try {
+        var resp = await fetch('/admin/nodes/fetch', { method: 'POST' });
+        var data = await resp.json();
+        
+        if (resp.ok) {
+            status.textContent = '✅ 新增 ' + data.added + ' 个节点 (共 ' + data.total + ' 个) | 耗时 ' + data.elapsed;
+            status.style.color = '#10b981';
+            setTimeout(refreshData, 500); // 刷新数据
+        } else {
+            status.textContent = '❌ ' + (data.error || '抓取失败');
+            status.style.color = '#ef4444';
+        }
+    } catch(e) {
+        status.textContent = '❌ 网络错误: ' + e.message;
+        status.style.color = '#ef4444';
+    }
+    btn.disabled = false;
+    btn.textContent = '🔄 获取免费节点';
 }
 
 document.addEventListener('DOMContentLoaded', function() {

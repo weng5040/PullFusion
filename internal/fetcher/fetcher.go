@@ -123,3 +123,23 @@ func determineTargets(item ProxyItem) []string {
 	}
 	return []string{"dockerhub"}
 }
+
+// defaultTypes 默认抓取的节点类型
+var defaultTypes = []string{"clash", "surge", "shadowrocket", "sing-box"}
+
+// FetchAndMerge 入口函数：从远程源抓取并合并到管理器
+func FetchAndMerge(ctx context.Context, mgr *nodemgr.Manager) (*FetchResult, error) {
+	// 构建现有节点 URL 集合用于去重
+	existing := make(map[string]bool)
+	for _, n := range mgr.List() {
+		existing[n.URL] = true
+	}
+
+	items, err := FetchFromStatus(ctx, defaultTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	result := MergeIntoManager(items, mgr, existing)
+	return &result, nil
+}
