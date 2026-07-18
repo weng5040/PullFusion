@@ -9,76 +9,45 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
-
-      - name: Build
-        run: go build ./...
-
-      - name: Test
-        run: go test ./... -count=1
-
-      - name: Vet
-        run: go vet ./...
-
+      - run: go build ./...
+      - run: go test ./... -count=1
+      - run: go vet ./...
       - name: Build binary
         run: |
-          CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/pullfusion/pullfusion/pkg/version.Version=${GITHUB_REF_NAME}" -o bin/pullfusion ./cmd/pullfusion/
+          CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/pullfusion ./cmd/pullfusion/
 
   docker:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
       - name: Check Docker Hub secrets
-        id: check-secrets
+        id: check
         run: |
           if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-            echo "has-secrets=true" >> $GITHUB_OUTPUT
+            echo "push=true" >> $GITHUB_OUTPUT
           else
-            echo "has-secrets=false" >> $GITHUB_OUTPUT
-            echo "::notice::Docker Hub secrets not configured, skipping push"
+            echo "push=false" >> $GITHUB_OUTPUT
           fi
-
       - name: Login to Docker Hub
-        if: steps.check-secrets.outputs.has-secrets == "true"
+        if: steps.check.outputs.push == "true"
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: pullfusion/pullfusion
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-            type=raw,value=latest
-
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: docker/Dockerfile.architecture
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: ${{ steps.check-secrets.outputs.has-secrets == "true" }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          push: ${{ steps.check.outputs.push }}
+          tags: |
+            pullfusion/pullfusion:latest
+            pullfusion/pullfusion:${{ github.ref_name }}
