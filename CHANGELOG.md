@@ -32,11 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📚 Documentation
 
--  — 项目概览与快速开始
--  — 管理 API 完整参考
--  — 部署指南（含群晖 / OpenWrt）
--  — 故障排查手册
--  — 版本变更日志
+- `README.md` — 项目概览与快速开始
+- `docs/api.md` — 管理 API 完整参考
+- `docs/deployment.md` — 部署指南（含群晖 / OpenWrt）
+- `docs/troubleshooting.md` — 故障排查手册
+- `CHANGELOG.md` — 版本变更日志
 
 ### 🛠️ Tooling
 

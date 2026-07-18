@@ -1,4 +1,4 @@
-# pullfusion 故障排查
+# PullFusion 故障排查
 
 ## 常见问题速查
 
@@ -8,7 +8,7 @@
 | 速度没有提升 | `curl http://<host>:5003/admin/stats` | [速度未提升](#速度未提升) |
 | 某个 blob 404 | 查看 `docker compose logs \| grep 404` | [Blob 404](#blob-404) |
 | 节点频繁熔断 | `curl http://<host>:5003/admin/nodes \| jq` | [节点熔断](#节点频繁熔断) |
-| 内存占用过高 | `docker stats pullfusion` | [内存过高](#内存占用过高) |
+| 内存占用过高 | `docker stats PullFusion` | [内存过高](#内存占用过高) |
 | 配置不生效 | `curl -X POST http://<host>:5003/admin/config/reload` | [配置不生效](#配置文件不生效) |
 
 ---
@@ -32,7 +32,7 @@ x509: certificate signed by unknown authority
 
 ### 原因
 
-pullfusion 默认使用自签证书，dockerd 不信任自签证书。
+PullFusion 默认使用自签证书，dockerd 不信任自签证书。
 
 ### 解决方案
 
@@ -71,8 +71,8 @@ sudo systemctl restart docker
 
 ```bash
 # Debian/Ubuntu
-sudo scp user@pullfusion:/opt/pullfusion/docker/config/ca.crt \
-  /usr/local/share/ca-certificates/pullfusion.crt
+sudo scp user@PullFusion:/opt/PullFusion/docker/config/ca.crt \
+  /usr/local/share/ca-certificates/PullFusion.crt
 sudo update-ca-certificates
 
 # CentOS/RHEL
@@ -207,7 +207,7 @@ docker pull nginx:latest
 **1. 分析失败原因**
 
 ```bash
-docker compose logs pullfusion 2>&1 | grep -i "markFailed\|error\|fail" | tail -50
+docker compose logs PullFusion 2>&1 | grep -i "markFailed\|error\|fail" | tail -50
 ```
 
 常见原因：
@@ -242,7 +242,7 @@ downloader:
 
 ### 症状
 
-`docker stats pullfusion` 显示内存持续增长，超过预期。
+`docker stats PullFusion` 显示内存持续增长，超过预期。
 
 ### 解决方案
 
@@ -261,7 +261,7 @@ downloader:
 ```yaml
 # docker-compose.yml
 services:
-  pullfusion:
+  PullFusion:
     # ...
     deploy:
       resources:
@@ -299,7 +299,7 @@ sudo swapon /swapfile
 **1. 检查自动热加载是否生效**
 
 ```bash
-docker compose logs pullfusion 2>&1 | grep -i "reload\|watcher"
+docker compose logs PullFusion 2>&1 | grep -i "reload\|watcher"
 ```
 
 正常输出应包含：`config file changed, reloading`
@@ -307,8 +307,8 @@ docker compose logs pullfusion 2>&1 | grep -i "reload\|watcher"
 **2. 检查 YAML 语法**
 
 ```bash
-docker compose exec pullfusion python3 -c "import yaml; yaml.safe_load(open('/config/nodes.yaml'))" 2>/dev/null || \
-  docker compose exec pullfusion cat /config/nodes.yaml
+docker compose exec PullFusion python3 -c "import yaml; yaml.safe_load(open('/config/nodes.yaml'))" 2>/dev/null || \
+  docker compose exec PullFusion cat /config/nodes.yaml
 ```
 
 **3. 手动触发重载**
@@ -329,7 +329,7 @@ curl -X POST http://localhost:5003/admin/config/reload
 确认 docker-compose.yml 中的 volume 映射正确：
 
 ```bash
-docker compose exec pullfusion ls -la /config/
+docker compose exec PullFusion ls -la /config/
 ```
 
 **5. 重启服务（最后手段）**
@@ -346,13 +346,13 @@ docker compose restart
 
 ```bash
 # 跟踪日志
-docker compose logs -f pullfusion
+docker compose logs -f PullFusion
 
 # 最近 100 行
-docker compose logs --tail=100 pullfusion
+docker compose logs --tail=100 PullFusion
 
 # 带时间戳
-docker compose logs -f --timestamps pullfusion
+docker compose logs -f --timestamps PullFusion
 ```
 
 ### 关键日志模式
