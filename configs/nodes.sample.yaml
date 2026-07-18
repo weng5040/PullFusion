@@ -1,10 +1,10 @@
 mirrors:
   dockerhub:
     - url: https://dockerproxy.net
-      priority: 1
+      priority: 2
       display_name: dockerproxy
     - url: https://registry-1.docker.io
-      priority: 99
+      priority: 1
       display_name: dockerhub
   ghcr:
     - url: https://ghcr.nju.edu.cn
