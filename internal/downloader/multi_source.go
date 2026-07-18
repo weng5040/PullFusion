@@ -172,7 +172,8 @@ func (d *MultiSourceDownloader) multiNodeDownload(
 ) (io.ReadCloser, int64, error) {
 	chunks := d.chunker.Allocate(nodes, totalSize, req.Range)
 	if len(chunks) == 0 {
-		return nil, 0, fmt.Errorf("chunk allocation produced no chunks")
+		slog.Warn("chunk allocation empty, falling back to single node", "blob", req.Digest, "nodes", len(nodes))
+		return d.singleNodeDownload(ctx, req, nodes[0])
 	}
 
 	slog.Info("multi-source download",

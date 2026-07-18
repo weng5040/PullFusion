@@ -1,6 +1,9 @@
 package downloader
 
-import "github.com/pullfusion/pullfusion/internal/nodemgr"
+import (
+	"log/slog"
+	"github.com/pullfusion/pullfusion/internal/nodemgr"
+)
 
 // Chunker 分块管理器——按节点权重将下载范围拆分为多个分块
 type Chunker struct {
@@ -79,6 +82,16 @@ func (c *Chunker) Allocate(nodes []*nodemgr.Node, totalSize int64, r *Range) []*
 		chunks[len(chunks)-1].End = rangeEnd
 	}
 
+	// Fallback: if somehow no chunks were allocated, use first node for entire range
+	if len(chunks) == 0 && len(nodes) > 0 {
+		slog.Warn("chunk allocation fallback, using single chunk", "size", rangeLen)
+		chunks = append(chunks, &Chunk{
+			Index: 0,
+			Start: rangeStart,
+			End:   rangeEnd,
+			Node:  nodes[0],
+		})
+	}
 	return chunks
 }
 

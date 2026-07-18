@@ -27,8 +27,8 @@ server:
 downloader:
   max_concurrent_per_blob: 4
   max_concurrent_global: 64
-  chunk_min_size: 1048576
-  chunk_max_size: 16777216
+  chunk_min_size: 262144
+  chunk_max_size: 33554432
   node_fail_threshold: 3
   speed_test_interval: 300s
   speed_test_url: "https://github.com/linkease/istore-packages/releases/download/prebuilt/quickstart-binary-0.11.9.tar.gz"
