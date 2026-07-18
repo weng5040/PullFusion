@@ -1,26 +1,26 @@
-# ============ 镜像源节点（HTTPS mirror）============
 mirrors:
   dockerhub:
     - url: https://registry-1.docker.io
       priority: 1
-      display_name: dockerhub
+      display_name: dockerproxy
     - url: https://docker.1ms.run
-      priority: 10
+      priority: 2
       display_name: 1ms
     - url: https://docker.m.daocloud.io
-      priority: 11
+      priority: 3
       display_name: daocloud
+    - url: https://registry-1.docker.io
+      priority: 99
+      display_name: dockerhub-direct
   ghcr:
     - url: https://ghcr.nju.edu.cn
       priority: 1
       display_name: nju-ghcr
 
-# ============ 代理节点（socks5/http，带宽叠加主力）============
 proxies:
   enabled: false
   nodes: []
 
-# ============ 服务器配置============
 server:
   registry_port: 5443
   proxy_port: 5003
@@ -30,7 +30,6 @@ server:
     cert: ""
     key: ""
 
-# ============ 下载策略============
 downloader:
   max_concurrent_per_blob: 4
   max_concurrent_global: 64
@@ -43,9 +42,9 @@ downloader:
   cache_dir: /cache
   cache_max_size: 10737418240
 
-# ============ 内置公共节点（首次启动预置到 mirrors）============
 builtin_mirrors:
   dockerhub:
+    - https://registry-1.docker.io
     - https://registry-1.docker.io
   ghcr:
     - https://ghcr.nju.edu.cn
