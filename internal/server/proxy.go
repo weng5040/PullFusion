@@ -38,6 +38,8 @@ func NewConnectProxy(cfg *config.Config, deps *Dependencies) *http.Server {
 	r.Get("/admin/stats", adminAPI.Stats)
 	r.Post("/admin/config/reload", adminAPI.ReloadConfig)
 	r.Post("/admin/nodes/fetch", adminAPI.FetchNodes)
+r.Post("/admin/nodes/test-one", adminAPI.TestOneNode)
+	r.Post("/admin/nodes/test-all", adminAPI.TestAllNodes)
 
 	regHandler := registry.NewHandler(cfg, deps.NodeMgr, deps.Downloader, deps.TokenService)
 	proxyHandler := &connectHandler{cfg: cfg, regHandler: regHandler}

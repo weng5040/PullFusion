@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pullfusion/pullfusion/internal/fetcher"
+	"github.com/pullfusion/pullfusion/internal/speedtest"
 	"github.com/pullfusion/pullfusion/internal/nodemgr"
 )
 
@@ -30,6 +31,7 @@ type API struct {
 	nodeMgr   *nodemgr.Manager
 	reloader  ReloadFunc
 	saveFn    func() error
+	speedTester *speedtest.Tester
 	startTime time.Time
 
 	dlLogMu sync.Mutex
@@ -38,6 +40,7 @@ type API struct {
 
 // NewAPI 创建管理 API
 func NewAPI(mgr *nodemgr.Manager, saveFn func() error) *API {
+	return &API{nodeMgr: mgr, saveFn: saveFn, speedTester: speedtest.New(0)}
 	return &API{
 		nodeMgr:   mgr,
 		startTime: time.Now(),
@@ -105,8 +108,44 @@ func (a *API) ListNodes(w http.ResponseWriter, r *http.Request) {
 // TestNode POST /admin/nodes/{id}/test
 func (a *API) TestNode(w http.ResponseWriter, r *http.Request) {
 	nodeID := chi.URLParam(r, "id")
-	_ = nodeID
-	writeJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
+	a.testNodeByURL(nodeID)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// TestOne POST /admin/nodes/test-one - test a single node by URL
+func (a *API) TestOneNode(w http.ResponseWriter, r *http.Request) {
+	var req struct{ URL string `json:"url"` }
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing url"})
+		return
+	}
+	a.testNodeByURL(req.URL)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "url": req.URL})
+}
+
+// TestAll POST /admin/nodes/test-all - test all enabled nodes
+func (a *API) TestAllNodes(w http.ResponseWriter, r *http.Request) {
+	go func() {
+		for _, n := range a.nodeMgr.List() {
+			if !n.Enabled { continue }
+			r := a.speedTester.TestOne(speedtest.NodeInfo{URL: n.URL, Token: n.Token})
+			if r.Error == "" {
+				a.nodeMgr.RecordDownload(n.URL, r.LatencyMs, r.SpeedKBps, r.Bytes/1024, true)
+			} else {
+				a.nodeMgr.RecordDownload(n.URL, r.LatencyMs, 0, 0, false)
+			}
+		}
+	}()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
+}
+
+func (a *API) testNodeByURL(targetURL string) {
+	r := a.speedTester.TestOne(speedtest.NodeInfo{URL: targetURL})
+	if r.Error == "" {
+		a.nodeMgr.RecordDownload(r.NodeURL, r.LatencyMs, r.SpeedKBps, r.Bytes/1024, true)
+	} else {
+		a.nodeMgr.RecordDownload(r.NodeURL, r.LatencyMs, 0, 0, false)
+	}
 }
 
 // FetchNodes POST /admin/nodes/fetch — 从远程源抓取免费节点
