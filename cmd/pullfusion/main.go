@@ -21,7 +21,6 @@ import (
 	"github.com/pullfusion/pullfusion/internal/metrics"
 	"github.com/pullfusion/pullfusion/internal/nodemgr"
 	"github.com/pullfusion/pullfusion/internal/server"
-	"github.com/pullfusion/pullfusion/internal/speedtest"
 	"github.com/pullfusion/pullfusion/internal/store"
 	"github.com/pullfusion/pullfusion/pkg/version"
 )
@@ -114,29 +113,6 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Periodic speed test: measures latency + throughput of all enabled nodes every 5 min
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-		st := speedtest.New(5 * time.Minute)
-		run := func() {
-			for _, n := range nodeMgr.List() {
-				if !n.Enabled {
-					continue
-				}
-				r := st.TestOne(speedtest.NodeInfo{URL: n.URL, Token: n.Token})
-				if r.Error == "" {
-					nodeMgr.RecordMetric(n.URL, "latency", r.LatencyMs); nodeMgr.RecordMetric(n.URL, "speed", r.SpeedKBps)
-				} else {
-					nodeMgr.RecordMetric(n.URL, "latency", r.LatencyMs); nodeMgr.RecordMetric(n.URL, "speed", 0)
-				}
-			}
-		}
-		run()
-		for range ticker.C {
-			run()
-		}
-	}()
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.Server.RegistryPort)
