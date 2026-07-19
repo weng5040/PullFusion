@@ -1,11 +1,8 @@
 package nodemgr
 
-import (
-	"sync"
-	"time"
-)
+import "sync"
 
-// NodeType 节点类型
+// NodeType defines the type of a node.
 type NodeType string
 
 const (
@@ -14,25 +11,16 @@ const (
 	NodeTypeHTTP   NodeType = "http"
 )
 
-// Node 节点定义
+// Node represents a registry mirror or proxy node.
 type Node struct {
-	URL         string
-	DisplayName string
-	Type        NodeType
-	Priority    int
-	Enabled     bool
-	Targets     []string
-Token       string // PAT token for authenticated registries (e.g. ghcr)
-
-	Speed     float64
-	Latency   float64          // ms (lower is better)
-	FailCount int
-	InFlight  int32 // atomic
-	LastCheck time.Time
-	Healthy   bool
+	URL         string   `json:"url"`
+	DisplayName string   `json:"display_name"`
+	Type        NodeType `json:"type"`
+	Priority    int      `json:"priority"`
+	Enabled     bool     `json:"enabled"`
+	Healthy     bool     `json:"healthy"`
+	Targets     []string `json:"targets"`       // e.g. ["dockerhub", "ghcr"]
+	Token       string   `json:"token,omitempty"` // config-level auth token
 
 	mu sync.Mutex
 }
-
-// atomicInt32 简单 getter，避免直接访问 atomic 字段
-func atomicInt32(v int32) int32 { return v }

@@ -8,7 +8,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/pullfusion/pullfusion/internal/downloader"
 	"github.com/pullfusion/pullfusion/internal/fetcher"
 	"github.com/pullfusion/pullfusion/internal/nodemgr"
 )
@@ -101,41 +100,15 @@ func (a *API) ServeDashboard(w http.ResponseWriter, r *http.Request) {
 // ListNodes GET /admin/nodes
 func (a *API) ListNodes(w http.ResponseWriter, r *http.Request) {
 	nodes := a.nodeMgr.List()
-	snapshots := make([]nodemgr.NodeSnapshot, len(nodes))
-	for i, n := range nodes {
-		snapshots[i] = nodemgr.Snapshot(n)
-	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(snapshots)
+	json.NewEncoder(w).Encode(nodes)
 }
 
 // TestNode POST /admin/nodes/{id}/test
 func (a *API) TestNode(w http.ResponseWriter, r *http.Request) {
 	nodeID := chi.URLParam(r, "id")
-	if nodeID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing node id"})
-		return
-	}
-
-	nodes := a.nodeMgr.List()
-	var target *nodemgr.Node
-	for _, n := range nodes {
-		if n.URL == nodeID || n.DisplayName == nodeID {
-			target = n
-			break
-		}
-	}
-
-	if target == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "node not found"})
-		return
-	}
-
-	a.nodeMgr.TestSingleNode(target)
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status": "testing",
-		"node":   target.URL,
-	})
+	_ = nodeID
+	writeJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
 }
 
 // FetchNodes POST /admin/nodes/fetch — 从远程源抓取免费节点
@@ -151,14 +124,14 @@ func (a *API) FetchNodes(w http.ResponseWriter, r *http.Request) {
 // Stats GET /admin/stats
 func (a *API) Stats(w http.ResponseWriter, r *http.Request) {
 	total, healthy := a.nodeMgr.GetHealthStatus()
-	stats := downloader.GetGlobalStats()
+
 	resp := map[string]interface{}{
 		"nodes_total":      total,
 		"nodes_healthy":    healthy,
-		"active_downloads": stats.Active,
-		"downloads_total":  stats.Completed,
-		"download_errors":  stats.Failed,
-		"error_rate":       stats.ErrorRate,
+		"active_downloads": 0,
+		"downloads_total":  0,
+		"download_errors":  0,
+		"error_rate":       0,
 		"cache_hits":       0,
 		"cache_misses":     0,
 		"uptime_seconds":   time.Since(a.startTime).Seconds(),

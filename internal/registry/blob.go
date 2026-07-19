@@ -6,77 +6,84 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/pullfusion/pullfusion/internal/downloader"
 )
 
-
-// serveBlob blob 下载入口。
-// registry 参数用于选择节点来源（dockerhub/ghcr）。
+// serveBlob blob download entry.
 func (h *Handler) serveBlob(w http.ResponseWriter, r *http.Request, name, digest, registry string) {
-	// HEAD 请求：确认 blob 是否存在
+	// HEAD: proxy to first available node
 	if r.Method == http.MethodHead {
 		h.headBlob(w, r, name, digest, registry)
 		return
 	}
 
-	// Proxy blob through docker.1ms.run (fast, handles auth)
-	blobURL := "https://docker.1ms.run/v2/" + name + "/blobs/" + digest
-	req, _ := http.NewRequestWithContext(r.Context(), r.Method, blobURL, nil)
+	// GET: Single-node proxy through docker.1ms.run with token
+	slog.Info("blob download", "name", name, "digest", digest[:12])
+
+	dlReq := downloader.DownloadRequest{
+		Name:     name,
+		Digest:   digest,
+		Registry: registry,
+	}
+
+	if h.tokenSvc != nil {
+		if tok, err := h.tokenSvc.GetToken(r.Context(), registry, name); err == nil && tok != "" {
+			dlReq.Token = tok
+		}
+	}
+
+	body, contentLength, _, err := h.downloader.Download(r.Context(), dlReq)
+	if err != nil {
+		slog.Error("blob download failed", "name", name, "error", err)
+		http.Error(w, "download failed", http.StatusBadGateway)
+		return
+	}
+	defer body.Close()
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if contentLength > 0 {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", contentLength))
+	}
+	w.Header().Set("Docker-Content-Digest", digest)
+	w.WriteHeader(http.StatusOK)
+
+	io.Copy(w, body)
+}
+
+// headBlob HEAD request handler
+func (h *Handler) headBlob(w http.ResponseWriter, r *http.Request, name, digest, registry string) {
+	nodes := h.nodeMgr.List()
+	var nodeURL string
+	for _, n := range nodes {
+		if n.Enabled && n.Healthy {
+			nodeURL = n.URL
+			break
+		}
+	}
+	if nodeURL == "" {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	blobURL := fmt.Sprintf("%s/v2/%s/blobs/%s", nodeURL, name, digest)
+	req, err := http.NewRequestWithContext(r.Context(), "HEAD", blobURL, nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
 	if h.tokenSvc != nil {
 		if tok, err := h.tokenSvc.GetToken(r.Context(), registry, name); err == nil && tok != "" {
 			req.Header.Set("Authorization", "Bearer "+tok)
 		}
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		slog.Error("blob proxy failed", "error", err)
-		http.Error(w, "upstream error", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-	transparentHeaders(w, resp)
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
-}
-
-// headBlob HEAD 请求处理
-func (h *Handler) headBlob(w http.ResponseWriter, r *http.Request, name, digest, registry string) {
-	nodes := h.nodeMgr.SelectForBlob(registry, 0, 1)
-	if len(nodes) == 0 {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	node := nodes[0]
-
-	blobURL := fmt.Sprintf("%s/v2/%s/blobs/%s", node.URL, name, digest)
-
-	req, err := http.NewRequestWithContext(r.Context(), "HEAD", blobURL, nil)
-	if err != nil {
-		slog.Error("create head blob request", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	// 如果节点有 token，添加认证头
-	if node.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+node.Token)
-	} else if h.tokenSvc != nil && registry == "dockerhub" {
-		if tok, err := h.tokenSvc.GetToken(r.Context(), registry, name); err == nil && tok != "" {
-			req.Header.Set("Authorization", "Bearer "+tok)
-		}
-	} else if h.tokenSvc != nil && registry == "dockerhub" {
-		if tok, err := h.tokenSvc.GetToken(r.Context(), registry, name); err == nil && tok != "" {
-			req.Header.Set("Authorization", "Bearer "+tok)
-		}
-	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		slog.Warn("head blob failed", "node", node.URL, "error", err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 	defer resp.Body.Close()
-
 	transparentHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 }

@@ -74,21 +74,14 @@ func main() {
 		}
 	}
 
-	nodeMgr.StartSpeedTest(context.Background())
+	
 
 	configWatcher, err := config.StartWatcher(*configPath, cfg, nodeMgr)
 	if err != nil {
 		slog.Warn("failed to start config watcher, hot-reload disabled", "error", err)
 	}
 
-	dl := downloader.NewMultiSourceDownloader(
-		nodeMgr,
-		cfg.Downloader.MaxConcurrentPerBlob,
-		cfg.Downloader.MaxConcurrentGlobal,
-		cfg.Downloader.ChunkMinSize,
-		cfg.Downloader.ChunkMaxSize,
-		cfg.Downloader.NodeFailThreshold,
-	)
+	dl := downloader.NewMultiSourceDownloader(nodeMgr)
 
 	api := admin.NewAPI(nodeMgr, func() error { return persist.Save(nodeMgr, cfg) })
 

@@ -1,5 +1,32 @@
 mirrors:
-  dockerhub: []
+  dockerhub:
+    - url: https://docker.1ms.run
+      priority: 1
+      display_name: 1ms-docker
+    - url: https://docker.xuanyuan.me
+      priority: 2
+      display_name: xuanyuan
+    - url: https://docker.m.daocloud.io
+      priority: 3
+      display_name: daocloud
+    - url: https://docker.sparkcr.cn
+      priority: 4
+      display_name: sparkcr
+    - url: https://docker.1panel.live
+      priority: 5
+      display_name: 1panel
+    - url: https://hub.1panel.dev
+      priority: 6
+      display_name: 1panel-dev
+    - url: https://dockerproxy.cool
+      priority: 7
+      display_name: dp-cool
+    - url: https://hub1.nat.tf
+      priority: 8
+      display_name: nat1
+    - url: https://hub4.nat.tf
+      priority: 9
+      display_name: nat4
   ghcr: []
 
 proxies:
@@ -15,7 +42,7 @@ server:
     key: data/docker.inyo.cc.key
 
 downloader:
-  max_concurrent_per_blob: 4
+  max_concurrent_per_blob: 9
   max_concurrent_global: 64
   chunk_min_size: 262144
   chunk_max_size: 33554432
