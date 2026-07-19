@@ -10,10 +10,10 @@ server:
   registry_port: 5443
   proxy_port: 5003
   proxy_auth: ''
-  registry_domain: coolme.inyo.cc
+  registry_domain: 1.inyo.cc
   tls:
-    cert: 'data/coolme.crt'
-    key: 'data/coolme.key'
+    cert: 'data/1inyo.crt'
+    key: 'data/1inyo.key'
 
 downloader:
   max_concurrent_per_blob: 4
