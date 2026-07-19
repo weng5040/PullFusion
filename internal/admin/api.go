@@ -40,12 +40,7 @@ type API struct {
 
 // NewAPI 创建管理 API
 func NewAPI(mgr *nodemgr.Manager, saveFn func() error) *API {
-	return &API{nodeMgr: mgr, saveFn: saveFn, speedTester: speedtest.New(0)}
-	return &API{
-		nodeMgr:   mgr,
-		startTime: time.Now(),
-		dlLog:     make([]DownloadRecord, 0, 50),
-	}
+	return &API{nodeMgr: mgr, saveFn: saveFn, speedTester: speedtest.New(0), startTime: time.Now(), dlLog: make([]DownloadRecord, 0, 50)}
 }
 
 // NewAPIWithReload 创建带热加载的管理 API

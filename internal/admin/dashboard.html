@@ -3,594 +3,332 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kspeeder-Lite 仪表盘</title>
+<title>PullFusion 控制台</title>
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --bg: #0d1117;
-  --card-bg: #161b22;
-  --border: #30363d;
-  --text: #c9d1d9;
-  --text-secondary: #8b949e;
-  --accent: #58a6ff;
-  --green: #3fb950;
-  --red: #f85149;
-  --orange: #d29922;
-  --purple: #a371f7;
-  --radius: 8px;
-  --shadow: 0 1px 3px rgba(0,0,0,0.3);
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--card-bg:#161b22;--border:#30363d;
+  --text:#c9d1d9;--text2:#8b949e;--accent:#58a6ff;
+  --green:#3fb950;--red:#f85149;--orange:#d29922;--purple:#a371f7;--yellow:#e3b341;
+  --radius:8px;--shadow:0 1px 3px rgba(0,0,0,0.3);
 }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.5;
-  min-height: 100vh;
-}
-.header {
-  background: var(--card-bg);
-  border-bottom: 1px solid var(--border);
-  padding: 16px 24px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-.header h1 { font-size: 20px; font-weight: 600; color: var(--text); }
-.header-right { display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--text-secondary); }
-.refresh-indicator { display: flex; align-items: center; gap: 6px; }
-.refresh-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
-@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-.error-dot { background: var(--red); }
-.container { max-width: 1400px; margin: 0 auto; padding: 24px; }
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
-.stat-card {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px;
-  box-shadow: var(--shadow);
-}
-.stat-card .label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-.stat-card .value { font-size: 28px; font-weight: 700; color: var(--text); }
-.stat-card .sub { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
-.stat-card.green .value { color: var(--green); }
-.stat-card.red .value { color: var(--red); }
-.stat-card.orange .value { color: var(--orange); }
-.stat-card.purple .value { color: var(--purple); }
-.stat-card.blue .value { color: var(--accent); }
-
-.section-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.panel {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  margin-bottom: 24px;
-  overflow: hidden;
-}
-.panel-header { padding: 16px 20px; border-bottom: 1px solid var(--border); }
-.panel-body { padding: 0; overflow-x: auto; }
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-thead th {
-  text-align: left;
-  padding: 10px 16px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-  cursor: pointer;
-  user-select: none;
-  transition: color 0.15s;
-}
-thead th:hover { color: var(--text); }
-thead th .sort-arrow { margin-left: 4px; font-size: 10px; opacity: 0.5; }
-thead th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
-thead th.sorted-asc .sort-arrow:after { content: ' \25B2'; }
-thead th.sorted-desc .sort-arrow:after { content: ' \25BC'; }
-tbody td {
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-tbody tr:hover { background: rgba(255,255,255,0.02); }
-tbody tr:last-child td { border-bottom: none; }
-
-.status-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-right: 6px;
-}
-.status-dot.healthy { background: var(--green); }
-.status-dot.unhealthy { background: var(--red); }
-.status-dot.circuit { background: var(--orange); }
-
-.badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 500;
-}
-.badge-mirror { background: rgba(88,166,255,0.15); color: var(--accent); }
-.badge-socks5 { background: rgba(163,113,247,0.15); color: var(--purple); }
-.badge-http { background: rgba(63,185,80,0.15); color: var(--green); }
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--card-bg);
-  color: var(--text);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-.btn:hover { border-color: var(--accent); color: var(--accent); }
-.btn:active { transform: scale(0.97); }
-.btn-testing { opacity: 0.5; pointer-events: none; }
-
-.empty-state {
-  text-align: center;
-  padding: 40px 20px;
-  color: var(--text-secondary);
-}
-.empty-state .icon { font-size: 32px; margin-bottom: 8px; }
-
-footer {
-  text-align: center;
-  padding: 16px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-@media (max-width: 768px) {
-  .container { padding: 12px; }
-  .header { padding: 12px 16px; flex-direction: column; gap: 8px; text-align: center; }
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
-  table { font-size: 12px; }
-  thead th, tbody td { padding: 8px 10px; }
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+.header{background:var(--card-bg);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:100}
+.header h1{font-size:18px;font-weight:700;color:var(--accent)}.header h1 span{color:var(--text2);font-size:13px;font-weight:400;margin-left:4px}
+.header-right{display:flex;align-items:center;gap:16px;font-size:13px;color:var(--text2)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.dot.err{background:var(--red)}
+.container{max-width:1700px;margin:0 auto;padding:20px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px}
+.stat-card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}
+.stat-card .lbl{font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.stat-card .val{font-size:26px;font-weight:700;color:var(--text)}
+.stat-card .sub{font-size:12px;color:var(--text2);margin-top:2px}
+.stat-card.g .val{color:var(--green)}.stat-card.r .val{color:var(--red)}.stat-card.o .val{color:var(--orange)}.stat-card.b .val{color:var(--accent)}
+.panel{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:20px;overflow:hidden}
+.panel-hd{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:600}
+.panel-bd{padding:0;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+th{text-align:left;padding:9px 14px;font-weight:600;color:var(--text2);border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;vertical-align:middle}
+th .arr{display:inline-block;width:10px;font-size:10px;opacity:.3;margin-left:3px}
+th.sorted{color:var(--text)}
+th.sorted .arr{opacity:1;color:var(--accent)}
+th .lbl{display:inline-block;width:auto}
+th.no-sort{cursor:default}
+td{padding:9px 14px;border-bottom:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+tr:hover{background:rgba(255,255,255,.02)}tr:last-child td{border-bottom:none}
+.tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;margin:1px 2px;border:1px solid}
+.hb{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:500}
+.click{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.click:hover{color:var(--accent)}
+.empty{text-align:center;padding:40px 20px;color:var(--text2)}
+footer{text-align:center;padding:16px;color:var(--text2);font-size:12px;border-top:1px solid var(--border)}
+@media(max-width:768px){
+  .container{padding:10px}
+  .header{padding:10px 16px;flex-direction:column;gap:6px;text-align:center}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  table{font-size:12px}th,td{padding:7px 10px}
 }
 </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>Kspeeder-Lite 仪表盘</h1>
+  <h1>PullFusion <span>v1.0</span></h1>
   <div class="header-right">
     <span id="uptime">--</span>
-    <div class="refresh-indicator">
-      <div class="refresh-dot" id="refreshDot"></div>
-      <span id="lastRefresh">--</span>
-    </div>
+    <div class="dot" id="dot"></div>
+    <span id="lastRef">--</span>
+    <button class="click" onclick="refreshAll(true)" style="border:1px solid var(--border);padding:4px 10px;border-radius:6px;background:var(--card-bg);color:var(--text);cursor:pointer">刷新全部</button>
   </div>
 </div>
 
 <div class="container">
 
-  <button id="fetch-nodes-btn" onclick="fetchFreeNodes()" 
-    style="background: linear-gradient(135deg, #7c3aed, #a855f7); color: white; border: none; 
-    padding: 8px 20px; border-radius: 8px; font-size: 14px; cursor: pointer; margin-bottom: 12px;">
-    🔄 获取免费节点
-  </button>
-  <span id="fetch-status" style="margin-left: 12px; font-size: 13px;"></span>
-
-  <div class="stats-grid" id="statsGrid">
-    <div class="stat-card blue">
-      <div class="label">总节点数</div>
-      <div class="value" id="statTotal">-</div>
-      <div class="sub">健康率 <span id="statHealthRate">-</span></div>
-    </div>
-    <div class="stat-card green">
-      <div class="label">健康节点</div>
-      <div class="value" id="statHealthy">-</div>
-      <div class="sub">当前可用</div>
-    </div>
-    <div class="stat-card orange">
-      <div class="label">活跃下载</div>
-      <div class="value" id="statActive">-</div>
-      <div class="sub">并发中</div>
-    </div>
-    <div class="stat-card green">
-      <div class="label">完成下载</div>
-      <div class="value" id="statCompleted">-</div>
-      <div class="sub">失败率 <span id="statErrorRate">-</span></div>
-    </div>
-    <div class="stat-card purple">
-      <div class="label">缓存命中</div>
-      <div class="value" id="statCacheHits">-</div>
-      <div class="sub">命中率 <span id="statCacheRate">-</span></div>
-    </div>
-    <div class="stat-card blue">
-      <div class="label">配置热加载</div>
-      <div class="value" id="statReloads">-</div>
-      <div class="sub">运行时间</div>
-    </div>
+  <div class="stats-grid">
+    <div class="stat-card b"><div class="lbl">节点总数</div><div class="val" id="stTotal">-</div><div class="sub">启用 <span id="stEnabled">-</span></div></div>
+    <div class="stat-card g"><div class="lbl">优秀 / 良好</div><div class="val" id="stGood">-</div><div class="sub">延迟 &lt;200 / &lt;500ms</div></div>
+    <div class="stat-card o"><div class="lbl">一般 / 高延迟</div><div class="val" id="stWarn">-</div><div class="sub">延迟 &lt;1000 / &ge;1000ms</div></div>
+    <div class="stat-card r"><div class="lbl">不可用</div><div class="val" id="stDown">-</div><div class="sub">未测试 / 测试失败</div></div>
   </div>
 
   <div class="panel">
-    <div class="panel-header">
-      <div class="section-title">
-        <span>节点列表</span>
-        <span style="font-size: 12px; font-weight: 400; color: var(--text-secondary);">点击列头排序</span>
-      </div>
-    </div>
-    <div class="panel-body">
-      <table id="nodeTable">
-        <thead>
-          <tr>
-            <th data-sort="display_name" class="sorted sorted-asc"><span class="sort-arrow">名称</span></th>
-            <th data-sort="url"><span class="sort-arrow">URL</span></th>
-            <th data-sort="type"><span class="sort-arrow">类型</span></th>
-            <th data-sort="priority"><span class="sort-arrow">优先级</span></th>
-            <th data-sort="speed_mbps"><span class="sort-arrow">速度(Mbps)</span></th>
-            <th data-sort="healthy"><span class="sort-arrow">健康状态</span></th>
-            <th data-sort="in_flight"><span class="sort-arrow">并发数</span></th>
-            <th data-sort="fail_count"><span class="sort-arrow">失败次数</span></th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody id="nodeBody">
-        </tbody>
-      </table>
-      <div class="empty-state" id="nodeEmpty" style="display:none;">
-        <div class="icon">📡</div>
-        <div>暂无节点数据</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-header">
-      <div class="section-title">
-        <span>实时下载日志</span>
-        <span style="font-size: 12px; font-weight: 400; color: var(--text-secondary);">最近 50 条</span>
-      </div>
-    </div>
-    <div class="panel-body">
-      <table id="downloadTable">
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>镜像名</th>
-            <th>大小</th>
-            <th>节点数</th>
-            <th>速度</th>
-            <th>耗时</th>
-            <th>状态</th>
-          </tr>
-        </thead>
-        <tbody id="downloadBody">
-        </tbody>
-      </table>
-      <div class="empty-state" id="downloadEmpty">
-        <div class="icon">📥</div>
-        <div>暂无下载记录</div>
-      </div>
+    <div class="panel-hd"><span>节点列表</span><span style="font-size:12px;font-weight:400;color:var(--text2)">手动刷新 · 点击延迟/速度重新测试</span></div>
+    <div class="panel-bd">
+      <table><colgroup>
+        <col style="width:14%"><col style="width:24%"><col style="width:14%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:12%">
+      </colgroup><thead>
+        <tr>
+          <th data-sort="display_name" class="sorted asc"><span class="lbl">名称</span><span class="arr">▲</span></th>
+          <th data-sort="url"><span class="lbl">URL</span><span class="arr">▲</span></th>
+          <th>标签</th>
+          <th data-sort="latency_ms" class="no-sort"><span class="lbl">延迟</span><span class="arr"></span></th>
+          <th data-sort="speed_kbps" class="no-sort"><span class="lbl">速度</span><span class="arr"></span></th>
+          <th data-sort="score"><span class="lbl">评分</span><span class="arr">▲</span></th>
+          <th data-sort="success_rate"><span class="lbl">成功率</span><span class="arr">▲</span></th>
+          <th data-sort="health"><span class="lbl">健康</span><span class="arr">▲</span></th>
+        </tr>
+      </thead><tbody id="tb"></tbody></table>
+      <div class="empty" id="emptyTb" style="display:none"><div style="font-size:28px;margin-bottom:6px">📡</div>暂无节点</div>
     </div>
   </div>
 
 </div>
 
-<footer>Kspeeder-Lite &copy; 2026 — 嵌入式 Web 管理界面</footer>
+<footer>PullFusion &copy; 2026 — Docker 镜像加速代理 · 数据来源: status.anye.xyz</footer>
 
 <script>
-const REFRESH_INTERVAL = 5000;
-const API_BASE = '';
+// State persisted to localStorage
+var STORAGE_KEY = 'pullfusion_dashboard_v1';
+var state = {
+  sortK: 'display_name',
+  sortD: 'asc',
+};
+try {
+  var saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) state = Object.assign(state, JSON.parse(saved));
+} catch (e) {}
 
-var nodeSortKey = 'display_name';
-var nodeSortDir = 'asc';
 var nodes = [];
-var refreshTimer = null;
-var refreshError = false;
+var errFlag = false;
+var testBusy = {};
 
 function $(id) { return document.getElementById(id); }
-
-function formatBytes(bytes) {
-  if (bytes === 0 || bytes == null) return '0 B';
-  var units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  var i = 0;
-  var b = bytes;
-  while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
-  return b.toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) {}
 }
 
-function formatSpeed(kbps) {
-  if (!kbps || kbps === 0) return '--';
-  if (kbps >= 1024) return (kbps / 1024).toFixed(1) + ' MB/s';
-  return kbps.toFixed(0) + ' KB/s';
-}
+function esc(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
+function escA(s) { return s ? String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;') : ''; }
 
-function formatDuration(seconds) {
-  if (!seconds || seconds < 0) return '--';
-  if (seconds < 1) return (seconds * 1000).toFixed(0) + 'ms';
-  if (seconds < 60) return seconds.toFixed(1) + 's';
-  var m = Math.floor(seconds / 60);
-  var s = Math.floor(seconds % 60);
-  return m + 'm' + s + 's';
-}
-
-function formatUptime(seconds) {
-  if (!seconds || seconds < 0) return '--';
+function fmtUptime(seconds) {
+  if (!seconds || seconds < 0 || !isFinite(seconds) || seconds > 315360000) return '--';
   var d = Math.floor(seconds / 86400);
   var h = Math.floor((seconds % 86400) / 3600);
   var m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return d + 'd' + h + 'h' + m + 'm';
-  if (h > 0) return h + 'h' + m + 'm';
-  return m + 'm';
+  if (d > 0) return d + '天' + h + '时';
+  if (h > 0) return h + '时' + m + '分';
+  return m + '分';
 }
 
-function statusClass(node) {
-  if (!node.healthy && node.fail_count >= 3) return 'circuit';
-  if (!node.healthy) return 'unhealthy';
-  return 'healthy';
+function latencyHealth(ms) {
+  if (!ms || ms <= 0) return { cls: 'down', txt: '未测试', color: '#8b949e' };
+  if (ms < 200) return { cls: 'excellent', txt: '优秀', color: '#3fb950' };
+  if (ms < 500) return { cls: 'good', txt: '良好', color: '#58a6ff' };
+  if (ms < 1000) return { cls: 'normal', txt: '一般', color: '#d29922' };
+  return { cls: 'slow', txt: '高延迟', color: '#e3b341' };
 }
 
-function statusText(node) {
-  if (!node.healthy && node.fail_count >= 3) return '熔断';
-  if (!node.healthy) return '不健康';
-  return '健康';
-}
-
-function typeBadge(type) {
-  var cls = { mirror: 'badge-mirror', socks5: 'badge-socks5', http: 'badge-http' };
-  return '<span class="badge ' + (cls[type] || '') + '">' + (type || '--') + '</span>';
-}
-
-function renderNodes(sortedNodes) {
-  var tbody = $('nodeBody');
-  var empty = $('nodeEmpty');
-  if (!sortedNodes || sortedNodes.length === 0) {
-    tbody.innerHTML = '';
-    empty.style.display = 'block';
-    return;
-  }
-  empty.style.display = 'none';
-  tbody.innerHTML = sortedNodes.map(function(n) {
-    return '<tr>' +
-      '<td><strong>' + escHtml(n.display_name || n.url) + '</strong></td>' +
-      '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="' + escAttr(n.url) + '">' + escHtml(truncateUrl(n.url)) + '</td>' +
-      '<td>' + typeBadge(n.type) + '</td>' +
-      '<td>' + (n.priority || 0) + '</td>' +
-      '<td>' + ((n.speed_mbps || 0).toFixed(2)) + '</td>' +
-      '<td><span class="status-dot ' + statusClass(n) + '"></span>' + statusText(n) + '</td>' +
-      '<td>' + (n.in_flight || 0) + '</td>' +
-      '<td>' + (n.fail_count || 0) + '</td>' +
-      '<td><button class="btn" onclick="testNode(\'' + escAttr(n.url) + '\', this)" title="触发测速">&#9889; 测速</button></td>' +
-      '</tr>';
+function renderRow(n) {
+  var h = latencyHealth(n.latency_ms);
+  var url = n.url || '--';
+  var tags = (n.tags || []).map(function(tg) {
+    return '<span class="tag" style="border-color:' + (tg.color || '#30363d') + ';color:' + (tg.color || '#c9d1d9') + '">' + esc(tg.name) + '</span>';
   }).join('');
+  if (!tags) tags = '<span style="color:var(--text2)">--</span>';
+  return '<tr data-url="' + escA(url) + '">' +
+    '<td><strong>' + esc(n.display_name || '--') + '</strong></td>' +
+    '<td title="' + escA(url) + '" style="font-family:monospace;font-size:12px">' + esc(url) + '</td>' +
+    '<td>' + tags + '</td>' +
+    '<td class="lat"><span class="click" data-test="lat" data-url="' + escA(url) + '">' + (n.latency_ms > 0 ? n.latency_ms.toFixed(0) + ' ms' : '<span style="color:var(--text2)">点击测试</span>') + '</span></td>' +
+    '<td class="spd"><span class="click" data-test="spd" data-url="' + escA(url) + '">' + (n.speed_kbps > 0 ? (n.speed_kbps.toFixed(n.speed_kbps < 10 ? 1 : 0) + ' KB/s') : '<span style="color:var(--text2)">点击测试</span>') + '</span></td>' +
+    '<td class="score">' + (n.score || 0) + '</td>' +
+    '<td class="sr">' + ((n.success_rate || 0) * 100).toFixed(0) + '%</td>' +
+    '<td class="hb"><span class="hb" style="background:' + h.color + '22;color:' + h.color + '">' + h.txt + '</span></td>' +
+    '</tr>';
 }
 
-function renderDownloads(logs) {
-  var tbody = $('downloadBody');
-  var empty = $('downloadEmpty');
-  if (!logs || logs.length === 0) {
-    tbody.innerHTML = '';
-    empty.style.display = 'block';
-    return;
-  }
-  empty.style.display = 'none';
-  tbody.innerHTML = logs.map(function(d) {
-    var statusCls = d.error ? 'red' : 'green';
-    return '<tr>' +
-      '<td>' + escHtml(d.time || '--') + '</td>' +
-      '<td>' + escHtml(d.name || '--') + '</td>' +
-      '<td>' + formatBytes(d.size) + '</td>' +
-      '<td>' + (d.node_count || 0) + '</td>' +
-      '<td>' + formatSpeed(d.speed_kbps) + '</td>' +
-      '<td>' + formatDuration(d.duration_sec) + '</td>' +
-      '<td style="color:var(--' + statusCls + ')">' + (d.error ? '失败' : '成功') + '</td>' +
-      '</tr>';
-  }).join('');
+function render() {
+  var t = $('tb'), e = $('emptyTb');
+  if (!nodes.length) { t.innerHTML = ''; e.style.display = 'block'; return; }
+  e.style.display = 'none';
+  t.innerHTML = nodes.map(renderRow).join('');
 }
 
-function escHtml(s) {
-  if (!s) return '';
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function updateStats() {
+  var total = nodes.length, ex = 0, gd = 0, nm = 0, sl = 0, dn = 0;
+  nodes.forEach(function(n) {
+    var h = latencyHealth(n.latency_ms);
+    if (h.cls === 'excellent') ex++;
+    else if (h.cls === 'good') gd++;
+    else if (h.cls === 'normal') nm++;
+    else if (h.cls === 'slow') sl++;
+    else dn++;
+  });
+  $('stTotal').textContent = total; $('stEnabled').textContent = total;
+  $('stGood').textContent = ex + gd; $('stWarn').textContent = nm + sl;
+  $('stDown').textContent = dn;
 }
 
-function escAttr(s) {
-  if (!s) return '';
-  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function escJs(s) {
-  return JSON.stringify(s);
-}
-
-function truncateUrl(url) {
-  if (!url) return '--';
-  try {
-    var u = new URL(url);
-    return u.hostname + u.pathname;
-  } catch(e) {
-    return url.length > 50 ? url.substring(0, 47) + '...' : url;
-  }
-}
-
-function sortNodes(key, dir) {
+function sortNodes(k, d) {
   return nodes.slice().sort(function(a, b) {
-    var va = a[key], vb = b[key];
-    if (key === 'healthy') { va = va ? 1 : 0; vb = vb ? 1 : 0; }
+    var va = a[k], vb = b[k];
     if (va == null) va = '';
     if (vb == null) vb = '';
-    if (typeof va === 'string') va = va.toLowerCase();
-    if (typeof vb === 'string') vb = vb.toLowerCase();
-    if (va < vb) return dir === 'asc' ? -1 : 1;
-    if (va > vb) return dir === 'asc' ? 1 : -1;
+    if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
+    if (va < vb) return d === 'asc' ? -1 : 1;
+    if (va > vb) return d === 'asc' ? 1 : -1;
     return 0;
   });
 }
 
 function refreshSortUI() {
-  var ths = document.querySelectorAll('#nodeTable thead th[data-sort]');
+  var ths = document.querySelectorAll('th[data-sort]');
   ths.forEach(function(th) {
-    th.classList.remove('sorted', 'sorted-asc', 'sorted-desc');
-    if (th.dataset.sort === nodeSortKey) {
+    th.classList.remove('sorted', 'asc', 'desc');
+    var arr = th.querySelector('.arr');
+    if (th.dataset.sort === state.sortK) {
       th.classList.add('sorted');
-      th.classList.add(nodeSortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+      th.classList.add(state.sortD === 'asc' ? 'asc' : 'desc');
+      arr.textContent = state.sortD === 'asc' ? '▲' : '▼';
+    } else {
+      arr.textContent = '▲';
     }
   });
 }
 
-async function refreshData() {
+function applySort() {
+  nodes = sortNodes(state.sortK, state.sortD);
+  render();
+  refreshSortUI();
+}
+
+async function refreshAll(silent) {
   try {
-    var responses = await Promise.all([
-      fetch(API_BASE + '/admin/nodes').then(function(r) { if (!r.ok) throw new Error('nodes ' + r.status); return r.json(); }),
-      fetch(API_BASE + '/admin/stats').then(function(r) { if (!r.ok) throw new Error('stats ' + r.status); return r.json(); }),
-      fetch(API_BASE + '/admin/downloads').then(function(r) { if (!r.ok) throw new Error('downloads ' + r.status); return r.json(); }).catch(function() { return []; })
-    ]);
-
-    nodes = responses[0] || [];
-    var stats = responses[1] || {};
-    var downloads = responses[2] || [];
-
-    updateStats(stats);
-    var sorted = sortNodes(nodeSortKey, nodeSortDir);
-    renderNodes(sorted);
-    renderDownloads(downloads);
-    refreshSortUI();
-
-    refreshError = false;
-    $('refreshDot').classList.remove('error-dot');
-  } catch(e) {
-    console.error('refresh error:', e);
-    refreshError = true;
-    $('refreshDot').classList.add('error-dot');
+    var r = await fetch('/admin/nodes');
+    if (!r.ok) throw Error('' + r.status);
+    var raw = await r.json();
+    var sr = await fetch('/admin/stats'); var st = await sr.json();
+    var secs = parseFloat(st.uptime_seconds);
+    $('uptime').textContent = '运行 ' + fmtUptime(secs);
+    nodes = raw;
+    applySort();
+    updateStats();
+    errFlag = false; $('dot').classList.remove('err');
+  } catch (e) {
+    errFlag = true; $('dot').classList.add('err');
+    if (!silent) console.error('refresh error', e);
   }
-  $('lastRefresh').textContent = new Date().toLocaleTimeString('zh-CN');
+  $('lastRef').textContent = new Date().toLocaleTimeString('zh-CN');
 }
 
-function updateStats(stats) {
-  var total = stats.nodes_total || 0;
-  var healthy = stats.nodes_healthy || 0;
-  var active = stats.active_downloads || 0;
-  var completed = stats.downloads_total || stats.completed || 0;
-  var failed = stats.download_errors || stats.failed || 0;
-  var cacheHits = stats.cache_hits || 0;
-  var cacheMisses = stats.cache_misses || 0;
-  var uptime = stats.uptime_seconds || 0;
-  var reloads = stats.config_reloads || 0;
-
-  $('statTotal').textContent = total;
-  $('statHealthy').textContent = healthy;
-  $('statHealthRate').textContent = total > 0 ? ((healthy / total) * 100).toFixed(0) + '%' : '--';
-  $('statActive').textContent = active;
-  $('statCompleted').textContent = completed;
-  var errorRate = (completed + failed) > 0 ? ((failed / (completed + failed)) * 100).toFixed(1) + '%' : '0%';
-  $('statErrorRate').textContent = errorRate;
-  $('statCacheHits').textContent = cacheHits;
-  var cacheTotal = cacheHits + cacheMisses;
-  $('statCacheRate').textContent = cacheTotal > 0 ? ((cacheHits / cacheTotal) * 100).toFixed(0) + '%' : '--';
-  $('statReloads').textContent = reloads;
-  $('uptime').textContent = '运行 ' + formatUptime(uptime);
+// Update one row in place after a test completes
+function updateRow(url, newData) {
+  var tr = document.querySelector('tr[data-url="' + cssEscape(url) + '"]');
+  if (!tr) return;
+  var idx = nodes.findIndex(function(n) { return n.url === url; });
+  if (idx >= 0) {
+    nodes[idx] = Object.assign(nodes[idx], newData);
+  }
+  var h = latencyHealth(newData.latency_ms);
+  tr.querySelector('.lat').innerHTML = '<span class="click" data-test="lat" data-url="' + escA(url) + '">' + (newData.latency_ms > 0 ? newData.latency_ms.toFixed(0) + ' ms' : '<span style="color:var(--text2)">未测</span>') + '</span>';
+  tr.querySelector('.spd').innerHTML = '<span class="click" data-test="spd" data-url="' + escA(url) + '">' + (newData.speed_kbps > 0 ? (newData.speed_kbps.toFixed(newData.speed_kbps < 10 ? 1 : 0) + ' KB/s') : '<span style="color:var(--text2)">未测</span>') + '</span>';
+  tr.querySelector('.score').textContent = newData.score || 0;
+  tr.querySelector('.sr').textContent = ((newData.success_rate || 0) * 100).toFixed(0) + '%';
+  tr.querySelector('.hb').innerHTML = '<span class="hb" style="background:' + h.color + '22;color:' + h.color + '">' + h.txt + '</span>';
+  // Rebind click handlers
+  tr.querySelectorAll('.click').forEach(function(el) { bindClick(el); });
+  updateStats();
 }
 
-async function testNode(url, btn) {
-  if (btn.disabled) return;
-  btn.disabled = true;
-  btn.classList.add('btn-testing');
-  btn.textContent = '\u23F3 测速中...';
+function cssEscape(s) {
+  if (!s) return '';
+  if (window.CSS && CSS.escape) return CSS.escape(s);
+  return s.replace(/[^a-zA-Z0-9_-]/g, function(c) { return '\\' + c; });
+}
+
+function bindClick(el) {
+  el.onclick = function(e) {
+    e.stopPropagation();
+    var url = el.getAttribute('data-url');
+    var kind = el.getAttribute('data-test');
+    if (testBusy[url]) return;
+    testSingle(url, kind, el);
+  };
+}
+
+async function testSingle(url, kind, el) {
+  if (testBusy[url]) return;
+  testBusy[url] = true;
+  var origHtml = el.innerHTML;
+  el.innerHTML = '<span style="color:var(--accent)">测试中...</span>';
   try {
-    var resp = await fetch(API_BASE + '/admin/nodes/' + encodeURIComponent(url) + '/test', { method: 'POST' });
-    if (!resp.ok) throw new Error('test failed');
-  } catch(e) {
-    console.error('test node error:', e);
-  } finally {
-    setTimeout(function() {
-      btn.disabled = false;
-      btn.classList.remove('btn-testing');
-      btn.textContent = '\u26A1 测速';
-    }, 3000);
-  }
-}
-
-async function fetchFreeNodes() {
-    var btn = document.getElementById('fetch-nodes-btn');
-    var status = document.getElementById('fetch-status');
-    btn.disabled = true;
-    btn.textContent = '⏳ 正在抓取...';
-    status.textContent = '';
-    
-    try {
-        var resp = await fetch('/admin/nodes/fetch', { method: 'POST' });
-        var data = await resp.json();
-        
-        if (resp.ok) {
-            status.textContent = '✅ 新增 ' + data.added + ' 个节点 (共 ' + data.total + ' 个) | 耗时 ' + data.elapsed;
-            status.style.color = '#10b981';
-            setTimeout(refreshData, 500); // 刷新数据
-        } else {
-            status.textContent = '❌ ' + (data.error || '抓取失败');
-            status.style.color = '#ef4444';
-        }
-    } catch(e) {
-        status.textContent = '❌ 网络错误: ' + e.message;
-        status.style.color = '#ef4444';
+    var r = await fetch('/admin/nodes/test-one', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url })
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
+    // Refetch only this node's data
+    var rr = await fetch('/admin/nodes');
+    if (rr.ok) {
+      var arr = await rr.json();
+      var fresh = arr.find(function(x) { return x.url === url; });
+      if (fresh) {
+        updateRow(url, fresh);
+      }
     }
-    btn.disabled = false;
-    btn.textContent = '🔄 获取免费节点';
+  } catch (e) {
+    el.innerHTML = '<span style="color:var(--red)">失败</span>';
+    setTimeout(function() { el.innerHTML = origHtml; bindClick(el); }, 2000);
+  }
+  testBusy[url] = false;
+}
+
+async function refreshAllNodes() {
+  if (testBusy['__all__']) return;
+  testBusy['__all__'] = true;
+  try {
+    await fetch('/admin/nodes/test-all', { method: 'POST' });
+    // Wait then reload
+    setTimeout(function() { refreshAll(true); testBusy['__all__'] = false; }, 8000);
+  } catch (e) {
+    testBusy['__all__'] = false;
+  }
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-  document.getElementById('nodeTable').addEventListener('click', function(e) {
-    var th = e.target.closest('th[data-sort]');
-    if (!th) return;
-    var key = th.dataset.sort;
-    if (nodeSortKey === key) {
-      nodeSortDir = nodeSortDir === 'asc' ? 'desc' : 'asc';
-    } else {
-      nodeSortKey = key;
-      nodeSortDir = 'asc';
-    }
-    var sorted = sortNodes(nodeSortKey, nodeSortDir);
-    renderNodes(sorted);
-    refreshSortUI();
+  // Sort handlers
+  document.querySelectorAll('th[data-sort]').forEach(function(th) {
+    th.addEventListener('click', function() {
+      var k = th.dataset.sort;
+      if (state.sortK === k) {
+        state.sortD = state.sortD === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.sortK = k; state.sortD = 'asc';
+      }
+      saveState();
+      applySort();
+    });
   });
 
-  refreshData();
-  refreshTimer = setInterval(refreshData, REFRESH_INTERVAL);
-});
-
-document.addEventListener('visibilitychange', function() {
-  if (document.hidden) {
-    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-  } else {
-    if (!refreshTimer) {
-      refreshData();
-      refreshTimer = setInterval(refreshData, REFRESH_INTERVAL);
-    }
-  }
+  // Initial load
+  refreshAll(true);
+  // Bind clickable cells in initial render
+  setTimeout(function() {
+    document.querySelectorAll('.click').forEach(bindClick);
+  }, 100);
 });
 </script>
 
