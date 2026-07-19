@@ -49,7 +49,7 @@ func (m *Manager) loadFromDB() {
 		}
 		m.nodes = append(m.nodes, &Node{
 			URL: dn.URL, DisplayName: dn.DisplayName,
-			Enabled: dn.Enabled, Healthy: true, Targets: dn.Targets, Token: dn.Token,
+			Enabled: dn.Enabled, Healthy: true, Targets: dn.Targets, Token: dn.Token, Tags: dn.Tags,
 		})
 	}
 	if len(dbNodes) > 0 {
@@ -79,7 +79,7 @@ func (m *Manager) saveToDB() {
 	for _, n := range m.List() {
 		records = append(records, store.NodeRecord{
 			URL: n.URL, DisplayName: n.DisplayName,
-			Enabled: n.Enabled, Targets: n.Targets, Token: n.Token,
+			Enabled: n.Enabled, Targets: n.Targets, Token: n.Token, Tags: n.Tags,
 		})
 	}
 	if err := m.db.SaveNodes(records); err != nil {

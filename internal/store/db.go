@@ -15,13 +15,21 @@ import (
 
 type DB struct{ db *sql.DB }
 
-// NodeRecord is a persisted node entry (identity + config only, no runtime state).
+// TagEntry represents a single tag with name and color.
+type TagEntry struct {
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+// NodeRecord is a persisted node entry.
 type NodeRecord struct {
+	ID          int64
 	URL         string
 	DisplayName string
 	Enabled     bool
 	Targets     []string
 	Token       string
+	Tags        []TagEntry // flattened to tags_name_N / tags_color_N columns
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -86,32 +94,39 @@ func Open(dataDir string) (*DB, error) {
 
 func (s *DB) migrate() error {
 	_, err := s.db.Exec(`
-		-- 节点配置表：每个镜像加速节点的标识和配置
 		CREATE TABLE IF NOT EXISTS nodes (
-			url          TEXT PRIMARY KEY,  -- 节点唯一标识（镜像站地址）
-			display_name TEXT NOT NULL,     -- 前端展示名称（来自 status.anye.xyz）
-			enabled      INTEGER DEFAULT 1, -- 是否启用：1=启用 0=禁用
-			targets      TEXT DEFAULT '["dockerhub"]', -- 支持的 registry（JSON 数组）
-			token        TEXT DEFAULT '',    -- 节点专用认证 token（预留）
-			created_at   INTEGER NOT NULL,  -- 首次入库时间（Unix 秒）
-			updated_at   INTEGER NOT NULL   -- 最后更新时间（Unix 秒）
+			id           INTEGER PRIMARY KEY AUTOINCREMENT, -- 自增主键
+			url          TEXT UNIQUE NOT NULL,               -- 镜像站地址
+			display_name TEXT NOT NULL,                      -- 展示名称（来自 status.anye.xyz）
+			enabled      INTEGER DEFAULT 1,                  -- 是否启用：1=启用 0=禁用
+			targets      TEXT DEFAULT '["dockerhub"]',       -- 支持的 registry（JSON 数组）
+			token        TEXT DEFAULT '',                    -- 认证 token（预留）
+			tags_name_1  TEXT DEFAULT '',                    -- 标签1名称
+			tags_color_1 TEXT DEFAULT '',                    -- 标签1颜色
+			tags_name_2  TEXT DEFAULT '',                    -- 标签2名称
+			tags_color_2 TEXT DEFAULT '',                    -- 标签2颜色
+			tags_name_3  TEXT DEFAULT '',                    -- 标签3名称
+			tags_color_3 TEXT DEFAULT '',                    -- 标签3颜色
+			tags_name_4  TEXT DEFAULT '',                    -- 标签4名称
+			tags_color_4 TEXT DEFAULT '',                    -- 标签4颜色
+			tags_name_5  TEXT DEFAULT '',                    -- 标签5名称
+			tags_color_5 TEXT DEFAULT '',                    -- 标签5颜色
+			created_at   INTEGER NOT NULL,                   -- 首次入库时间（Unix 秒）
+			updated_at   INTEGER NOT NULL                    -- 最后更新时间（Unix 秒）
 		);
 
-		-- 评分时序表：每次下载事件的完整记录
-		-- 所有评分维度（延迟/速度/失败/成功/分数/负载）都存在这里
-		-- 支持 7d/30d/365d 等任意时间窗口的聚合查询
 		CREATE TABLE IF NOT EXISTS node_metrics (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT, -- 自增事件 ID
-			node_url    TEXT NOT NULL REFERENCES nodes(url),-- 关联的节点地址
-			timestamp   INTEGER NOT NULL,   -- 事件发生时间（Unix 秒）
-			latency_ms  INTEGER DEFAULT 0,  -- 本次请求延迟（毫秒）
-			speed_kbps  INTEGER DEFAULT 0,  -- 本次下载速度（KB/s）
-			success     INTEGER DEFAULT 0,  -- 是否成功：1=成功 0=失败
-			fail_count  INTEGER DEFAULT 0,  -- 当时的连续失败次数
-			score       INTEGER DEFAULT 0,  -- 当时的综合评分（0~10000）
-			inflight    INTEGER DEFAULT 0,  -- 当时的并发数
-			healthy     INTEGER DEFAULT 1,  -- 当时是否健康：1=健康 0=熔断
-			bytes_total INTEGER DEFAULT 0   -- 本次下载字节数
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			node_url    TEXT NOT NULL REFERENCES nodes(url),
+			timestamp   INTEGER NOT NULL,
+			latency_ms  INTEGER DEFAULT 0,
+			speed_kbps  INTEGER DEFAULT 0,
+			success     INTEGER DEFAULT 0,
+			fail_count  INTEGER DEFAULT 0,
+			score       INTEGER DEFAULT 0,
+			inflight    INTEGER DEFAULT 0,
+			healthy     INTEGER DEFAULT 1,
+			bytes_total INTEGER DEFAULT 0
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_metrics_url      ON node_metrics(node_url);
@@ -123,6 +138,18 @@ func (s *DB) migrate() error {
 
 // ─── Node CRUD ──────────────────────────────────────────────
 
+func tagValue(tags []TagEntry, idx int, field string) string {
+	if idx < len(tags) {
+		switch field {
+		case "name":
+			return tags[idx].Name
+		case "color":
+			return tags[idx].Color
+		}
+	}
+	return ""
+}
+
 func (s *DB) SaveNodes(nodes []NodeRecord) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -133,9 +160,31 @@ func (s *DB) SaveNodes(nodes []NodeRecord) error {
 	for _, n := range nodes {
 		targetsJSON, _ := json.Marshal(n.Targets)
 		_, err := tx.Exec(`
-			INSERT OR REPLACE INTO nodes (url, display_name, enabled, targets, token, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM nodes WHERE url=?), ?), ?)`,
-			n.URL, n.DisplayName, boolToInt(n.Enabled), string(targetsJSON), n.Token, n.URL, now, now)
+			INSERT INTO nodes (url, display_name, enabled, targets, token,
+				tags_name_1, tags_color_1, tags_name_2, tags_color_2, tags_name_3, tags_color_3,
+				tags_name_4, tags_color_4, tags_name_5, tags_color_5,
+				created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?,
+				?, ?, ?, ?, ?, ?,
+				?, ?, ?, ?,
+				COALESCE((SELECT created_at FROM nodes WHERE url=?), ?), ?)
+			ON CONFLICT(url) DO UPDATE SET
+				display_name=excluded.display_name, enabled=excluded.enabled,
+				targets=excluded.targets, token=excluded.token,
+				tags_name_1=excluded.tags_name_1, tags_color_1=excluded.tags_color_1,
+				tags_name_2=excluded.tags_name_2, tags_color_2=excluded.tags_color_2,
+				tags_name_3=excluded.tags_name_3, tags_color_3=excluded.tags_color_3,
+				tags_name_4=excluded.tags_name_4, tags_color_4=excluded.tags_color_4,
+				tags_name_5=excluded.tags_name_5, tags_color_5=excluded.tags_color_5,
+				updated_at=excluded.updated_at`,
+			n.URL, n.DisplayName, boolToInt(n.Enabled), string(targetsJSON), n.Token,
+			tagValue(n.Tags, 0, "name"), tagValue(n.Tags, 0, "color"),
+			tagValue(n.Tags, 1, "name"), tagValue(n.Tags, 1, "color"),
+			tagValue(n.Tags, 2, "name"), tagValue(n.Tags, 2, "color"),
+			tagValue(n.Tags, 3, "name"), tagValue(n.Tags, 3, "color"),
+			tagValue(n.Tags, 4, "name"), tagValue(n.Tags, 4, "color"),
+			n.URL, now, now,
+		)
 		if err != nil {
 			return fmt.Errorf("save node %s: %w", n.URL, err)
 		}
@@ -144,7 +193,10 @@ func (s *DB) SaveNodes(nodes []NodeRecord) error {
 }
 
 func (s *DB) LoadNodes() ([]NodeRecord, error) {
-	rows, err := s.db.Query(`SELECT url, display_name, enabled, targets, token, created_at, updated_at FROM nodes`)
+	rows, err := s.db.Query(`SELECT id, url, display_name, enabled, targets, token,
+		tags_name_1, tags_color_1, tags_name_2, tags_color_2, tags_name_3, tags_color_3,
+		tags_name_4, tags_color_4, tags_name_5, tags_color_5,
+		created_at, updated_at FROM nodes`)
 	if err != nil {
 		return nil, err
 	}
@@ -155,13 +207,31 @@ func (s *DB) LoadNodes() ([]NodeRecord, error) {
 		var targetsJSON string
 		var enabled int
 		var ca, ua int64
-		if err := rows.Scan(&n.URL, &n.DisplayName, &enabled, &targetsJSON, &n.Token, &ca, &ua); err != nil {
+		var tn1, tc1, tn2, tc2, tn3, tc3, tn4, tc4, tn5, tc5 string
+		if err := rows.Scan(&n.ID, &n.URL, &n.DisplayName, &enabled, &targetsJSON, &n.Token,
+			&tn1, &tc1, &tn2, &tc2, &tn3, &tc3, &tn4, &tc4, &tn5, &tc5, &ca, &ua); err != nil {
 			return nil, err
 		}
 		json.Unmarshal([]byte(targetsJSON), &n.Targets)
 		n.Enabled = enabled != 0
 		n.CreatedAt = time.Unix(ca, 0)
 		n.UpdatedAt = time.Unix(ua, 0)
+		// Rebuild tags from columns
+		if tn1 != "" {
+			n.Tags = append(n.Tags, TagEntry{Name: tn1, Color: tc1})
+		}
+		if tn2 != "" {
+			n.Tags = append(n.Tags, TagEntry{Name: tn2, Color: tc2})
+		}
+		if tn3 != "" {
+			n.Tags = append(n.Tags, TagEntry{Name: tn3, Color: tc3})
+		}
+		if tn4 != "" {
+			n.Tags = append(n.Tags, TagEntry{Name: tn4, Color: tc4})
+		}
+		if tn5 != "" {
+			n.Tags = append(n.Tags, TagEntry{Name: tn5, Color: tc5})
+		}
 		result = append(result, n)
 	}
 	return result, rows.Err()
@@ -201,15 +271,6 @@ func (s *DB) LoadLatestMetrics() (map[string]MetricRecord, error) {
 		result[r.NodeURL] = r
 	}
 	return result, rows.Err()
-}
-
-// RecentFails returns how many of the last N requests to a node failed.
-func (s *DB) RecentFails(nodeURL string, lookback int) int {
-	var count int
-	s.db.QueryRow(`SELECT COUNT(*) FROM (
-		SELECT success FROM node_metrics WHERE node_url=? ORDER BY id DESC LIMIT ?
-	) WHERE success=0`, nodeURL, lookback).Scan(&count)
-	return count
 }
 
 func (s *DB) GetStats() (map[string][]AggregatedStats, error) {

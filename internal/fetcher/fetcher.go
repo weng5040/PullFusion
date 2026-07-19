@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pullfusion/pullfusion/internal/nodemgr"
+	"github.com/pullfusion/pullfusion/internal/store"
 )
 
 // defaultTypes are the registry types to fetch from status.anye.xyz
@@ -133,12 +134,18 @@ func MergeIntoManager(items []ProxyItem, mgr *nodemgr.Manager, existing map[stri
 		}
 
 		targets := determineTargets(item.Name, item.URL)
+		// Convert tags from ProxyItem to store.TagEntry
+		tagEntries := make([]store.TagEntry, len(item.Tags))
+		for i, t := range item.Tags {
+			tagEntries[i] = store.TagEntry{Name: t.Name, Color: t.Color}
+		}
 		mgr.AddNode(&nodemgr.Node{
 			URL:         item.URL,
 			DisplayName: displayName,
 			Enabled:     true,
-			Healthy:     true, // optimistic — local tests will determine real health
+			Healthy:     true,
 			Targets:     targets,
+			Tags:        tagEntries,
 		})
 		result.Added++
 		result.Nodes = append(result.Nodes, item.Name)
