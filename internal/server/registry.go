@@ -58,11 +58,13 @@ func NewRegistryServer(cfg *config.Config, deps *Dependencies) (*http.Server, er
 	if cfg.Server.TLS.Cert != "" && cfg.Server.TLS.Key != "" {
 		cert, err := tls.LoadX509KeyPair(cfg.Server.TLS.Cert, cfg.Server.TLS.Key)
 		if err != nil {
-			return nil, err
+			slog.Warn("failed to load cert, falling back to self-signed", "error", err)
+		} else {
+			tlsConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
 		}
-		tlsConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
-	} else {
-		// 自动生成自签证书
+	}
+	if tlsConfig == nil {
+	// 自动生成自签证书
 		cert, err := tlsutil.GenerateSelfSigned(cfg.Server.RegistryDomain)
 		if err != nil {
 			return nil, err

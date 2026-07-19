@@ -33,3 +33,4 @@ docker/cache/
 .env
 *.local.yaml
 data/*.key
+data/*.crt
