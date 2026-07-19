@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DBConsole ─ PullFusion</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0d1117;--card-bg:#161b22;--border:#30363d;--text:#c9d1d9;--text2:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--radius:8px;--mono:'SFMono',Menlo,monospace}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+.topbar{background:var(--card-bg);border-bottom:1px solid var(--border);padding:8px 16px;display:flex;align-items:center;gap:12px}
+.topbar a{color:var(--accent);text-decoration:none;font-size:13px}.topbar a:hover{text-decoration:underline}.topbar .sep{color:var(--text2)}
+.main{display:flex;height:calc(100vh - 37px)}
+.side{width:200px;background:var(--card-bg);border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0}
+.side-item{display:block;padding:8px 16px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s}
+.side-item:hover{background:rgba(255,255,255,.03)}.side-item.active{background:rgba(88,166,255,.1);color:var(--accent);border-left:3px solid var(--accent)}
+.content{flex:1;overflow:auto;padding:16px}
+h2{font-size:15px;margin-bottom:12px;color:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:12px;font-family:var(--mono)}
+th{text-align:left;padding:6px 10px;font-weight:600;color:var(--text2);border-bottom:1px solid var(--border);white-space:nowrap;background:var(--card-bg);position:sticky;top:0}
+td{padding:4px 10px;border-bottom:1px solid var(--border);max-width:300px;overflow:hidden;text-overflow:ellipsis}
+td.pk{color:var(--accent)}tr:hover{background:rgba(255,255,255,.02)}
+.row-count{font-size:12px;color:var(--text2);margin-bottom:8px}
+.search-box{display:flex;gap:8px;margin-bottom:12px;align-items:center}
+.search-box input,.search-box select{padding:4px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px}
+.search-box input{width:200px}.search-box select{width:120px}
+.btn{padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--card-bg);color:var(--text);font-size:11px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}.btn.danger{color:var(--red)}.btn.danger:hover{border-color:var(--red)}
+.pagination{display:flex;gap:4px;margin-top:12px;align-items:center;font-size:12px;color:var(--text2)}.pagination .btn{min-width:28px;text-align:center}
+.empty{text-align:center;padding:40px;color:var(--text2);font-size:13px}
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);display:flex;justify-content:center;z-index:1000;padding-top:60px}
+.modal-box{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);padding:20px;max-width:650px;width:94%;max-height:80vh;overflow:auto;align-self:flex-start}
+.modal-box h3{font-size:14px;margin-bottom:12px;color:var(--accent)}
+.modal-box label{display:block;font-size:12px;color:var(--text2);margin:8px 0 4px}
+.modal-box input,.modal-box textarea{width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-family:var(--mono);font-size:12px}
+.modal-box textarea{min-height:60px;resize:vertical}
+.modal-btns{display:flex;gap:8px;margin-top:16px;justify-content:flex-end}
+</style>
+</head>
+<body>
+<div class="topbar"><a href="/dashboard">← PullFusion</a><span class="sep">/</span><strong>DBConsole</strong></div>
+<div class="main">
+  <div class="side" id="side"></div>
+  <div class="content" id="content"><div class="empty">选择左侧表开始</div></div>
+</div>
+<div class="modal" id="modal" style="display:none"><div class="modal-box" id="modalBox"></div></div>
+<script>
+var tables=[],activeTable='',pkCol='',cols=[];
+var page=1,perPage=50,totalRows=0;
+var searchCol='',searchVal='';
+
+async function loadTables(){
+  var r=await fetch('/admin/db/tables');tables=await r.json();
+  $('side').innerHTML=tables.map(function(t){
+    return'<div class="side-item'+(t===activeTable?' active':'')+'" onclick="selectTable(\''+esc(t)+'\')">'+esc(t)+'</div>';
+  }).join('');
+}
+
+async function selectTable(t){activeTable=t;page=1;searchVal='';loadTables();await loadSchema();await loadData()}
+
+async function loadSchema(){
+  var r=await fetch('/admin/db/schema/'+activeTable);cols=await r.json();
+  pkCol=(cols.find(function(c){return c.pk})||{}).name||'';
+  var opts='<option value="">全字段</option>';
+  cols.forEach(function(c){opts+='<option value="'+esc(c.name)+'">'+esc(c.name)+'</option>'});
+  $('content').innerHTML=
+    '<h2>'+esc(activeTable)+'</h2>'+
+    '<div style="margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap">'+
+    cols.map(function(c){return'<span style="font-size:12px;font-family:var(--mono)"><strong style="color:var(--accent)">'+esc(c.name)+'</strong> <span style="color:var(--text2)">'+esc(c.type)+(c.pk?' <span style="color:var(--green)">PK</span>':'')+'</span></span>';}).join(' ')+
+    '</div>'+
+    '<div class="search-box">'+
+    '<select id="sCol" onchange="searchCol=this.value">'+opts+'</select>'+
+    '<input id="sVal" placeholder="搜索..." oninput="searchVal=this.value">'+
+    '<button class="btn" onclick="doSearch()">搜索</button>'+
+    '<button class="btn" onclick="page=1;searchVal=\'\';loadData()">清除</button>'+
+    '<span style="flex:1"></span>'+
+    '<button class="btn" onclick="showInsert()">+ 新增</button>'+
+    '</div><div id="dataArea"></div>';
+}
+
+async function loadData(){
+  var p=new URLSearchParams({table:activeTable,page:page,limit:perPage});
+  if(searchCol&&searchVal){p.set('col',searchCol);p.set('val',searchVal)}
+  var r=await fetch('/admin/db/data?'+p);var d=await r.json();
+  totalRows=d.total;var rows=d.rows;var cNames=d.cols;
+  if(!rows.length){$('dataArea').innerHTML='<div class="empty">无数据</div>';return}
+  var h='<div class="row-count">共 '+totalRows+' 行</div>';
+  h+='<div style="overflow-x:auto"><table><thead><tr><th>#</th>'+cNames.map(function(c){return'<th>'+esc(c)+'</th>'}).join('')+'<th>操作</th></tr></thead><tbody>';
+  rows.forEach(function(row,ri){
+    h+='<tr><td style="color:var(--text2)">'+((page-1)*perPage+ri+1)+'</td>'+
+    cNames.map(function(c){var v=row[c];if(v==null)v='<i style="color:var(--text2)">NULL</i>';else v=esc(String(v));return'<td class="'+(c===pkCol?'pk':'')+'">'+v+'</td>'}).join('')+
+    '<td><button class="btn" onclick="editRow('+JSON.stringify(row).replace(/"/g,'&quot;')+')">编辑</button> <button class="btn danger" onclick="delRow(\''+escA(row[pkCol])+'\')">删</button></td></tr>';
+  });
+  h+='</tbody></table></div>';
+  var pages=Math.ceil(totalRows/perPage);
+  if(pages>1){
+    h+='<div class="pagination">';
+    if(page>1)h+='<button class="btn" onclick="page=1;loadData()"><<</button><button class="btn" onclick="page--;loadData()"><</button>';
+    for(var pp=Math.max(1,page-2);pp<=Math.min(pages,page+2);pp++)h+='<button class="btn'+(pp===page?' style=\"border-color:var(--accent)\"':'')+'" onclick="page='+pp+';loadData()">'+pp+'</button>';
+    if(page<pages)h+='<button class="btn" onclick="page++;loadData()">></button><button class="btn" onclick="page='+pages+';loadData()">>></button>';
+    h+='</div>';
+  }
+  $('dataArea').innerHTML=h
+}
+
+function doSearch(){page=1;loadData()}
+
+async function editRow(row){var h='<h3>编辑</h3>';
+  cols.forEach(function(c){if(!pkCol)pkCol=(cols.find(function(x){return x.pk})||{}).name||'';
+    var v=row[c.name];if(v==null)v='';
+    h+='<label>'+esc(c.name)+(c.name===pkCol?' PK':'')+'</label><input id=\"_f_'+c.name+'\" value=\"'+escA(String(v))+'\"'+(c.name===pkCol?' readonly style=\"opacity:.5\"':'')+'>';
+  });
+  h+='<div class="modal-btns"><button class="btn" onclick=\"closeModal()\">取消</button><button class="btn" style=\"color:var(--green);border-color:var(--green)\" onclick=\"saveEdit()\">保存</button></div>';
+  $('modalBox').innerHTML=h;$('modal').style.display='flex'
+}
+
+async function showInsert(){var h='<h3>新增</h3>';
+  cols.forEach(function(c){h+='<label>'+esc(c.name)+'</label><input id=\"_f_'+c.name+'\" value=\"\">';});
+  h+='<div class="modal-btns"><button class="btn" onclick=\"closeModal()\">取消</button><button class="btn" style=\"color:var(--accent);border-color:var(--accent)\" onclick=\"saveInsert()\">创建</button></div>';
+  $('modalBox').innerHTML=h;$('modal').style.display='flex'
+}
+
+async function saveEdit(){var data={};cols.forEach(function(c){data[c.name]=$('_f_'+c.name).value});
+  await fetch('/admin/db/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table:activeTable,data:data,pk:pkCol})});closeModal();loadData()}
+
+async function saveInsert(){var data={};cols.forEach(function(c){data[c.name]=$('_f_'+c.name).value});
+  await fetch('/admin/db/insert',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table:activeTable,data:data})});closeModal();loadData()}
+
+async function delRow(pkVal){if(!confirm('确定删除?'))return;
+  await fetch('/admin/db/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({table:activeTable,pk:pkCol,val:pkVal})});loadData()}
+
+function closeModal(){$('modal').style.display='none'}
+function $(id){return document.getElementById(id)}
+function esc(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):''}
+function escA(s){return s?String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;'):''}
+loadTables();
+</script>
+</body>
+</html>

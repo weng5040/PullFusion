@@ -3,14 +3,16 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/pullfusion/pullfusion/internal/fetcher"
-	"github.com/pullfusion/pullfusion/internal/speedtest"
 	"github.com/pullfusion/pullfusion/internal/nodemgr"
+	"github.com/pullfusion/pullfusion/internal/speedtest"
+	"github.com/pullfusion/pullfusion/internal/store"
 )
 
 // ReloadFunc 配置热加载回调
@@ -18,21 +20,22 @@ type ReloadFunc func() error
 
 // DownloadRecord 单条下载记录
 type DownloadRecord struct {
-	Time        string  `json:"time"`
-	Name        string  `json:"name"`
-	Size        int64   `json:"size"`
-	NodeCount   int     `json:"node_count"`
+	Time       string  `json:"time"`
+	Name       string  `json:"name"`
+	Size       int64   `json:"size"`
+	SpeedKbps  float64 `json:"speed_kbps"`
 	DurationSec float64 `json:"duration_sec"`
-	Error       string  `json:"error,omitempty"`
+	Error      bool    `json:"error"`
 }
 
 // API 管理 API
 type API struct {
-	nodeMgr   *nodemgr.Manager
-	reloader  ReloadFunc
-	saveFn    func() error
+	nodeMgr     *nodemgr.Manager
+	reloader    ReloadFunc
+	saveFn      func() error
 	speedTester *speedtest.Tester
-	startTime time.Time
+	db          *store.DB
+	startTime   time.Time
 
 	dlLogMu sync.Mutex
 	dlLog   []DownloadRecord
@@ -53,51 +56,38 @@ func NewAPIWithReload(mgr *nodemgr.Manager, reloader ReloadFunc) *API {
 	}
 }
 
-// SetReloader 设置热加载回调（延迟注入）
-func (a *API) SetReloader(reloader ReloadFunc) {
-	a.reloader = reloader
-}
+// SetReloader 设置热加载回调
+func (a *API) SetReloader(fn ReloadFunc) { a.reloader = fn }
 
-// StartTime 返回实例创建时间
-func (a *API) StartTime() time.Time {
-	return a.startTime
-}
-
-// RecordDownload 记录一次下载（线程安全，环形缓冲区最多保留 50 条）
-func (a *API) RecordDownload(name string, size int64, nodeCount int, duration time.Duration, err error) {
-	a.dlLogMu.Lock()
-	defer a.dlLogMu.Unlock()
-
-	rec := DownloadRecord{
-		Time:        time.Now().Format("15:04:05"),
-		Name:        name,
-		Size:        size,
-		NodeCount:   nodeCount,
-		DurationSec: duration.Seconds(),
-	}
-	if err != nil {
-		rec.Error = err.Error()
-	}
-	if duration.Seconds() > 0 {
-	}
-
-	a.dlLog = append(a.dlLog, rec)
-	if len(a.dlLog) > 50 {
-		a.dlLog = a.dlLog[len(a.dlLog)-50:]
-	}
-}
-
-// ServeDashboard GET / 和 GET /dashboard 仪表盘
+// ServeDashboard 返回仪表盘 HTML
 func (a *API) ServeDashboard(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(DashboardHTML)
 }
 
+// ServeDBConsole 返回数据库管理 HTML
+func (a *API) ServeDBConsole(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(DBConsoleHTML)
+}
+
+// SetDB 设置数据库引用
+func (a *API) RecordDownload(name string, size int64, nodeCount int, duration time.Duration, err error) {
+	a.dlLogMu.Lock()
+	defer a.dlLogMu.Unlock()
+	a.dlLog = append(a.dlLog, DownloadRecord{
+		Time: time.Now().Format(time.RFC3339),
+		Name: name, Size: size, SpeedKbps: float64(size) / duration.Seconds() / 1024,
+		DurationSec: duration.Seconds(), Error: err != nil,
+	})
+	if len(a.dlLog) > 50 { a.dlLog = a.dlLog[len(a.dlLog)-50:] }
+}
+func (a *API) SetDB(database *store.DB) { a.db = database }
+
 // ListNodes GET /admin/nodes
 func (a *API) ListNodes(w http.ResponseWriter, r *http.Request) {
 	nodes := a.nodeMgr.GetScoredNodes()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(nodes)
+	writeJSON(w, http.StatusOK, nodes)
 }
 
 // TestNode POST /admin/nodes/{id}/test
@@ -107,7 +97,7 @@ func (a *API) TestNode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// TestOne POST /admin/nodes/test-one - test a single node by URL
+// TestOneNode POST /admin/nodes/test-one - test a single node by URL
 func (a *API) TestOneNode(w http.ResponseWriter, r *http.Request) {
 	var req struct{ URL string `json:"url"` }
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
@@ -118,11 +108,13 @@ func (a *API) TestOneNode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "url": req.URL})
 }
 
-// TestAll POST /admin/nodes/test-all - test all enabled nodes
+// TestAllNodes POST /admin/nodes/test-all - test all enabled nodes
 func (a *API) TestAllNodes(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		for _, n := range a.nodeMgr.List() {
-			if !n.Enabled { continue }
+			if !n.Enabled {
+				continue
+			}
 			r := a.speedTester.TestOne(speedtest.NodeInfo{URL: n.URL, Token: n.Token})
 			if r.Error == "" {
 				a.nodeMgr.RecordDownload(n.URL, r.LatencyMs, r.SpeedKBps, r.Bytes/1024, true)
@@ -156,7 +148,6 @@ func (a *API) FetchNodes(w http.ResponseWriter, r *http.Request) {
 // Stats GET /admin/stats
 func (a *API) Stats(w http.ResponseWriter, r *http.Request) {
 	total, _ := a.nodeMgr.GetHealthStatus()
-
 	resp := map[string]interface{}{
 		"nodes_total":      total,
 		"nodes_healthy":    total,
@@ -172,41 +163,121 @@ func (a *API) Stats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// GetDownloads GET /admin/downloads
-func (a *API) GetDownloads(w http.ResponseWriter, r *http.Request) {
-	a.dlLogMu.Lock()
-	defer a.dlLogMu.Unlock()
-
-	// 返回副本（倒序，最新在前）
-	result := make([]DownloadRecord, len(a.dlLog))
-	for i, rec := range a.dlLog {
-		result[len(a.dlLog)-1-i] = rec
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
-}
-
 // ReloadConfig POST /admin/config/reload
 func (a *API) ReloadConfig(w http.ResponseWriter, r *http.Request) {
 	if a.reloader == nil {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{
-			"status": "reload not available",
-			"error":  "no reload function configured",
-		})
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "reloader not configured"})
 		return
 	}
-
 	if err := a.reloader(); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"status": "failed",
-			"error":  err.Error(),
-		})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": "config reloaded"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "reloaded"})
 }
+
+// ─── DB Console Handlers ──────────────────────────────────────
+
+// DBTables GET /admin/db/tables
+func (a *API) DBTables(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "no db"})
+		return
+	}
+	tables, _ := a.db.ListTables()
+	writeJSON(w, http.StatusOK, tables)
+}
+
+// DBSchema GET /admin/db/schema/{table}
+func (a *API) DBSchema(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "no db"})
+		return
+	}
+	table := chi.URLParam(r, "table")
+	schema, _ := a.db.TableSchema(table)
+	writeJSON(w, http.StatusOK, schema)
+}
+
+// DBData GET /admin/db/data?table=&page=&limit=&col=&val=
+func (a *API) DBData(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "no db"})
+		return
+	}
+	q := r.URL.Query()
+	table := q.Get("table")
+	page, _ := strconv.Atoi(q.Get("page"))
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	cols, rows, total, _ := a.db.GenericQuery(table, q.Get("col"), q.Get("val"), page, limit)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"cols": cols, "rows": rows, "total": total, "page": page, "limit": limit,
+	})
+}
+
+// DBInsert POST /admin/db/insert
+func (a *API) DBInsert(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "no db"})
+		return
+	}
+	var req struct {
+		Table string            `json:"table"`
+		Data  map[string]string `json:"data"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	if err := a.db.GenericInsert(req.Table, req.Data); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// DBUpdate POST /admin/db/update
+func (a *API) DBUpdate(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "no db"})
+		return
+	}
+	var req struct {
+		Table string            `json:"table"`
+		Data  map[string]string `json:"data"`
+		Pk    string            `json:"pk"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	if err := a.db.GenericUpdate(req.Table, req.Pk, req.Data); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// DBDelete POST /admin/db/delete
+func (a *API) DBDelete(w http.ResponseWriter, r *http.Request) {
+	if a.db == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "no db"})
+		return
+	}
+	var req struct {
+		Table string `json:"table"`
+		Pk    string `json:"pk"`
+		Val   string `json:"val"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	if err := a.db.GenericDelete(req.Table, req.Pk, req.Val); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// ─── Helpers ──────────────────────────────────────────────────
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")

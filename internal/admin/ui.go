@@ -2,12 +2,16 @@ package admin
 
 import _ "embed"
 
-// DashboardHTML 嵌入的仪表盘 HTML 文件
-var DashboardHTML []byte
-
 //go:embed dashboard.html
 var dashboardRaw string
 
+//go:embed dbconsole.html
+var dbconsoleRaw string
+
 func init() {
 	DashboardHTML = []byte(dashboardRaw)
+	DBConsoleHTML = []byte(dbconsoleRaw)
 }
+
+var DashboardHTML []byte
+var DBConsoleHTML []byte

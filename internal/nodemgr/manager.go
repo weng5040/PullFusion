@@ -88,6 +88,7 @@ func (m *Manager) AddNode(node *Node) {
 }
 
 // GetScoredNodes returns all nodes with scores computed from DB.
+func (m *Manager) GetDB() *store.DB { return m.db }
 func (m *Manager) GetScoredNodes() []*Node {
 	m.mu.RLock()
 	nodes := make([]*Node, len(m.nodes))

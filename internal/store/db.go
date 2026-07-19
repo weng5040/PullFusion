@@ -408,6 +408,129 @@ func (d *DB) getStatsForPeriod(p StatsPeriod) ([]AggregatedStats, error) {
 	return result, rows.Err()
 }
 
+// ─── Generic DB access for admin console ─────────────────────
+
+func (d *DB) ListTables() ([]string, error) {
+	rows, err := d.db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []string
+	for rows.Next() {
+		var name string
+		rows.Scan(&name)
+		result = append(result, name)
+	}
+	return result, rows.Err()
+}
+
+type ColumnInfo struct {
+	Name string
+	Type string
+	PK   bool
+}
+
+func (d *DB) TableSchema(table string) ([]ColumnInfo, error) {
+	rows, err := d.db.Query("SELECT name, type, pk FROM pragma_table_info(?)", table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []ColumnInfo
+	for rows.Next() {
+		var ci ColumnInfo
+		var pk int
+		rows.Scan(&ci.Name, &ci.Type, &pk)
+		ci.PK = pk > 0
+		result = append(result, ci)
+	}
+	return result, rows.Err()
+}
+
+func (d *DB) GenericQuery(table, searchCol, searchVal string, page, limit int) ([]string, []map[string]interface{}, int, error) {
+	schema, err := d.TableSchema(table)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	var cols []string
+	for _, c := range schema {
+		cols = append(cols, c.Name)
+	}
+
+	var total int
+	d.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&total)
+
+	var query string
+	var args []interface{}
+	if searchCol != "" && searchVal != "" {
+		query = "SELECT * FROM " + table + " WHERE CAST(" + searchCol + " AS TEXT) LIKE ? ORDER BY rowid DESC LIMIT ? OFFSET ?"
+		args = append(args, "%"+searchVal+"%", limit, (page-1)*limit)
+	} else {
+		query = "SELECT * FROM " + table + " ORDER BY rowid DESC LIMIT ? OFFSET ?"
+		args = append(args, limit, (page-1)*limit)
+	}
+
+	r, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer r.Close()
+
+	var rows []map[string]interface{}
+	for r.Next() {
+		values := make([]interface{}, len(cols))
+		ptrs := make([]interface{}, len(cols))
+		for i := range values {
+			ptrs[i] = &values[i]
+		}
+		r.Scan(ptrs...)
+		row := make(map[string]interface{})
+		for i, c := range cols {
+			row[c] = values[i]
+		}
+		rows = append(rows, row)
+	}
+	return cols, rows, total, r.Err()
+}
+
+func (d *DB) GenericInsert(table string, data map[string]string) error {
+	cols := make([]string, 0, len(data))
+	vals := make([]interface{}, 0, len(data))
+	for k, v := range data {
+		cols = append(cols, k)
+		vals = append(vals, v)
+	}
+	ph := make([]string, len(cols))
+	for i := range ph {
+		ph[i] = "?"
+	}
+	_, err := d.db.Exec("INSERT INTO "+table+" ("+strings.Join(cols, ",")+") VALUES ("+strings.Join(ph, ",")+")", vals...)
+	return err
+}
+
+func (d *DB) GenericUpdate(table, pk string, data map[string]string) error {
+	sets := make([]string, 0, len(data)-1)
+	var vals []interface{}
+	var pkVal interface{}
+	for k, v := range data {
+		if k == pk {
+			pkVal = v
+			continue
+		}
+		sets = append(sets, k+" = ?")
+		vals = append(vals, v)
+	}
+	vals = append(vals, pkVal)
+	_, err := d.db.Exec("UPDATE "+table+" SET "+strings.Join(sets, ",")+" WHERE "+pk+" = ?", vals...)
+	return err
+}
+
+func (d *DB) GenericDelete(table, pk, val string) error {
+	_, err := d.db.Exec("DELETE FROM "+table+" WHERE "+pk+" = ?", val)
+	return err
+}
+
 func (d *DB) Close() error { return d.db.Close() }
 
 func boolToInt(b bool) int {
