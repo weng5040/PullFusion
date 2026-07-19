@@ -32,3 +32,4 @@ docker/cache/
 # Environment
 .env
 *.local.yaml
+data/*.key
