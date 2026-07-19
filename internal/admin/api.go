@@ -121,11 +121,11 @@ func (a *API) FetchNodes(w http.ResponseWriter, r *http.Request) {
 
 // Stats GET /admin/stats
 func (a *API) Stats(w http.ResponseWriter, r *http.Request) {
-	total, healthy := a.nodeMgr.GetHealthStatus()
+	total, _ := a.nodeMgr.GetHealthStatus()
 
 	resp := map[string]interface{}{
 		"nodes_total":      total,
-		"nodes_healthy":    healthy,
+		"nodes_healthy":    total,
 		"active_downloads": 0,
 		"downloads_total":  0,
 		"download_errors":  0,

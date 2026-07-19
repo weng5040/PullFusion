@@ -15,13 +15,8 @@ import (
 
 type DB struct{ db *sql.DB }
 
-// TagEntry represents a single tag with name and color.
-type TagEntry struct {
-	Name  string `json:"name"`
-	Color string `json:"color"`
-}
+// ── Node record ──
 
-// NodeRecord is a persisted node entry.
 type NodeRecord struct {
 	ID          int64
 	URL         string
@@ -29,23 +24,43 @@ type NodeRecord struct {
 	Enabled     bool
 	Targets     []string
 	Token       string
-	Tags        []TagEntry // flattened to tags_name_N / tags_color_N columns
+	Tags        []TagEntry
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
 
-type MetricRecord struct {
-	NodeURL    string
-	Timestamp  time.Time
-	LatencyMs  int64
-	SpeedKBps  int64
-	Success    bool
-	FailCount  int32
-	Score      int32
-	InFlight   int32
-	Healthy    bool
-	BytesTotal int64
+type TagEntry struct {
+	Name  string `json:"name"`
+	Color string `json:"color"`
 }
+
+// ── Metric event types ──
+
+const (
+	EventLatency = "latency" // event_value = milliseconds
+	EventSpeed   = "speed"   // event_value = KB/s
+	EventSuccess = "success" // event_value = 1 (ok) or 0 (fail)
+	EventBytes   = "bytes"   // event_value = KB downloaded
+)
+
+// MetricEvent is one row in the new node_metrics table.
+type MetricEvent struct {
+	NodeURL    string
+	EventType  string
+	EventValue int64
+}
+
+// ScoreSnapshot is the computed score at a point in time.
+type ScoreSnapshot struct {
+	NodeURL string
+	Score   int32   // 0~10000
+	Latency float64 // avg ms in window
+	Speed   float64 // avg KB/s in window
+	Success float64 // 0.0~1.0
+	Bytes   int64   // total KB
+}
+
+// ── Stats ──
 
 var (
 	Period7Day   = StatsPeriod{"7d", 7 * 86400}
@@ -83,55 +98,50 @@ func Open(dataDir string) (*DB, error) {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	s := &DB{db: db}
-	if err := s.migrate(); err != nil {
+	d := &DB{db: db}
+	if err := d.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	slog.Info("store: database opened", "path", path)
-	return s, nil
+	return d, nil
 }
 
-func (s *DB) migrate() error {
-	_, err := s.db.Exec(`
+func (d *DB) migrate() error {
+	_, err := d.db.Exec(`
 		CREATE TABLE IF NOT EXISTS nodes (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT, -- 自增主键
-			url          TEXT UNIQUE NOT NULL,               -- 镜像站地址
-			display_name TEXT NOT NULL,                      -- 展示名称（来自 status.anye.xyz）
-			enabled      INTEGER DEFAULT 1,                  -- 是否启用：1=启用 0=禁用
-			targets      TEXT DEFAULT '["dockerhub"]',       -- 支持的 registry（JSON 数组）
-			token        TEXT DEFAULT '',                    -- 认证 token（预留）
-			tags_name_1  TEXT DEFAULT '',                    -- 标签1名称
-			tags_color_1 TEXT DEFAULT '',                    -- 标签1颜色
-			tags_name_2  TEXT DEFAULT '',                    -- 标签2名称
-			tags_color_2 TEXT DEFAULT '',                    -- 标签2颜色
-			tags_name_3  TEXT DEFAULT '',                    -- 标签3名称
-			tags_color_3 TEXT DEFAULT '',                    -- 标签3颜色
-			tags_name_4  TEXT DEFAULT '',                    -- 标签4名称
-			tags_color_4 TEXT DEFAULT '',                    -- 标签4颜色
-			tags_name_5  TEXT DEFAULT '',                    -- 标签5名称
-			tags_color_5 TEXT DEFAULT '',                    -- 标签5颜色
-			created_at   INTEGER NOT NULL,                   -- 首次入库时间（Unix 秒）
-			updated_at   INTEGER NOT NULL                    -- 最后更新时间（Unix 秒）
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			url          TEXT UNIQUE NOT NULL,
+			display_name TEXT NOT NULL,
+			enabled      INTEGER DEFAULT 1,
+			targets      TEXT DEFAULT '["dockerhub"]',
+			token        TEXT DEFAULT '',
+			tags_name_1  TEXT DEFAULT '',
+			tags_color_1 TEXT DEFAULT '',
+			tags_name_2  TEXT DEFAULT '',
+			tags_color_2 TEXT DEFAULT '',
+			tags_name_3  TEXT DEFAULT '',
+			tags_color_3 TEXT DEFAULT '',
+			tags_name_4  TEXT DEFAULT '',
+			tags_color_4 TEXT DEFAULT '',
+			tags_name_5  TEXT DEFAULT '',
+			tags_color_5 TEXT DEFAULT '',
+			created_at   INTEGER NOT NULL,
+			updated_at   INTEGER NOT NULL
 		);
 
 		CREATE TABLE IF NOT EXISTS node_metrics (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			node_url    TEXT NOT NULL REFERENCES nodes(url),
-			timestamp   INTEGER NOT NULL,
-			latency_ms  INTEGER DEFAULT 0,
-			speed_kbps  INTEGER DEFAULT 0,
-			success     INTEGER DEFAULT 0,
-			fail_count  INTEGER DEFAULT 0,
-			score       INTEGER DEFAULT 0,
-			inflight    INTEGER DEFAULT 0,
-			healthy     INTEGER DEFAULT 1,
-			bytes_total INTEGER DEFAULT 0
+			node_url    TEXT NOT NULL,
+			event_type  TEXT NOT NULL,      -- latency / speed / success / bytes
+			event_value INTEGER NOT NULL,   -- raw value (no unit)
+			timestamp   INTEGER NOT NULL    -- Unix seconds
 		);
 
-		CREATE INDEX IF NOT EXISTS idx_metrics_url      ON node_metrics(node_url);
-		CREATE INDEX IF NOT EXISTS idx_metrics_time     ON node_metrics(timestamp);
-		CREATE INDEX IF NOT EXISTS idx_metrics_url_time ON node_metrics(node_url, timestamp);
+		CREATE INDEX IF NOT EXISTS idx_metrics_url   ON node_metrics(node_url);
+		CREATE INDEX IF NOT EXISTS idx_metrics_time  ON node_metrics(timestamp);
+		CREATE INDEX IF NOT EXISTS idx_metrics_etype ON node_metrics(event_type);
+		CREATE INDEX IF NOT EXISTS idx_metrics_url_type_time ON node_metrics(node_url, event_type, timestamp);
 	`)
 	return err
 }
@@ -150,8 +160,8 @@ func tagValue(tags []TagEntry, idx int, field string) string {
 	return ""
 }
 
-func (s *DB) SaveNodes(nodes []NodeRecord) error {
-	tx, err := s.db.Begin()
+func (d *DB) SaveNodes(nodes []NodeRecord) error {
+	tx, err := d.db.Begin()
 	if err != nil {
 		return err
 	}
@@ -162,12 +172,8 @@ func (s *DB) SaveNodes(nodes []NodeRecord) error {
 		_, err := tx.Exec(`
 			INSERT INTO nodes (url, display_name, enabled, targets, token,
 				tags_name_1, tags_color_1, tags_name_2, tags_color_2, tags_name_3, tags_color_3,
-				tags_name_4, tags_color_4, tags_name_5, tags_color_5,
-				created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?,
-				?, ?, ?, ?, ?, ?,
-				?, ?, ?, ?,
-				COALESCE((SELECT created_at FROM nodes WHERE url=?), ?), ?)
+				tags_name_4, tags_color_4, tags_name_5, tags_color_5, created_at, updated_at)
+			VALUES (?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?, COALESCE((SELECT created_at FROM nodes WHERE url=?),?),?)
 			ON CONFLICT(url) DO UPDATE SET
 				display_name=excluded.display_name, enabled=excluded.enabled,
 				targets=excluded.targets, token=excluded.token,
@@ -192,11 +198,10 @@ func (s *DB) SaveNodes(nodes []NodeRecord) error {
 	return tx.Commit()
 }
 
-func (s *DB) LoadNodes() ([]NodeRecord, error) {
-	rows, err := s.db.Query(`SELECT id, url, display_name, enabled, targets, token,
+func (d *DB) LoadNodes() ([]NodeRecord, error) {
+	rows, err := d.db.Query(`SELECT id, url, display_name, enabled, targets, token,
 		tags_name_1, tags_color_1, tags_name_2, tags_color_2, tags_name_3, tags_color_3,
-		tags_name_4, tags_color_4, tags_name_5, tags_color_5,
-		created_at, updated_at FROM nodes`)
+		tags_name_4, tags_color_4, tags_name_5, tags_color_5, created_at, updated_at FROM nodes`)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +221,6 @@ func (s *DB) LoadNodes() ([]NodeRecord, error) {
 		n.Enabled = enabled != 0
 		n.CreatedAt = time.Unix(ca, 0)
 		n.UpdatedAt = time.Unix(ua, 0)
-		// Rebuild tags from columns
 		if tn1 != "" {
 			n.Tags = append(n.Tags, TagEntry{Name: tn1, Color: tc1})
 		}
@@ -237,70 +241,144 @@ func (s *DB) LoadNodes() ([]NodeRecord, error) {
 	return result, rows.Err()
 }
 
-// ─── Metrics + Aggregation ──────────────────────────────────
+// ─── Metric insert ──────────────────────────────────────────
 
-func (s *DB) InsertMetric(r MetricRecord) error {
-	_, err := s.db.Exec(`
-		INSERT INTO node_metrics (node_url, timestamp, latency_ms, speed_kbps, success, fail_count, score, inflight, healthy, bytes_total)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.NodeURL, r.Timestamp.Unix(), r.LatencyMs, r.SpeedKBps,
-		boolToInt(r.Success), r.FailCount, r.Score, r.InFlight, boolToInt(r.Healthy), r.BytesTotal)
+func (d *DB) InsertMetricEvent(e MetricEvent) error {
+	_, err := d.db.Exec(
+		`INSERT INTO node_metrics (node_url, event_type, event_value, timestamp) VALUES (?, ?, ?, ?)`,
+		e.NodeURL, e.EventType, e.EventValue, time.Now().Unix(),
+	)
 	return err
 }
 
-func (s *DB) LoadLatestMetrics() (map[string]MetricRecord, error) {
-	rows, err := s.db.Query(`
-		SELECT node_url, timestamp, latency_ms, speed_kbps, success, fail_count, score, inflight, healthy, bytes_total
-		FROM node_metrics WHERE id IN (SELECT MAX(id) FROM node_metrics GROUP BY node_url)`)
+// InsertBatch writes all event types for one download in a single tx.
+func (d *DB) InsertDownloadEvents(nodeURL string, latencyMs, speedKBps, byteKB int64, success bool) error {
+	tx, err := d.db.Begin()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	defer rows.Close()
-	result := make(map[string]MetricRecord)
-	for rows.Next() {
-		var r MetricRecord
-		var ts int64
-		var success, healthy int
-		if err := rows.Scan(&r.NodeURL, &ts, &r.LatencyMs, &r.SpeedKBps,
-			&success, &r.FailCount, &r.Score, &r.InFlight, &healthy, &r.BytesTotal); err != nil {
-			return nil, err
+	defer tx.Rollback()
+	now := time.Now().Unix()
+	successVal := int64(0)
+	if success {
+		successVal = 1
+	}
+	exec := func(etype string, val int64) {
+		if err != nil {
+			return
 		}
-		r.Timestamp = time.Unix(ts, 0)
-		r.Success = success != 0
-		r.Healthy = healthy != 0
-		result[r.NodeURL] = r
+		_, err = tx.Exec(`INSERT INTO node_metrics (node_url, event_type, event_value, timestamp) VALUES (?,?,?,?)`,
+			nodeURL, etype, val, now)
 	}
-	return result, rows.Err()
+	exec(EventLatency, latencyMs)
+	exec(EventSpeed, speedKBps)
+	exec(EventSuccess, successVal)
+	exec(EventBytes, byteKB)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-func (s *DB) GetStats() (map[string][]AggregatedStats, error) {
+// ─── Scoring queries (window-based from DB) ──────────────────
+
+// ComputeScore computes the current score for a node URL entirely from DB.
+func (d *DB) ComputeScore(nodeURL string) ScoreSnapshot {
+	var ss ScoreSnapshot
+	ss.NodeURL = nodeURL
+	now := time.Now().Unix()
+
+	// Latency: avg of last 24h, ignoring 0
+	d.db.QueryRow(`SELECT COALESCE(AVG(event_value), 0) FROM node_metrics
+		WHERE node_url=? AND event_type=? AND timestamp > ? AND event_value > 0`,
+		nodeURL, EventLatency, now-86400).Scan(&ss.Latency)
+
+	// Speed: avg of last 48h, ignoring 0
+	d.db.QueryRow(`SELECT COALESCE(AVG(event_value), 0) FROM node_metrics
+		WHERE node_url=? AND event_type=? AND timestamp > ? AND event_value > 0`,
+		nodeURL, EventSpeed, now-172800).Scan(&ss.Speed)
+
+	// Success: rate in last 7d
+	var total, successes float64
+	d.db.QueryRow(`SELECT COUNT(*) FROM node_metrics
+		WHERE node_url=? AND event_type=? AND timestamp > ?`,
+		nodeURL, EventSuccess, now-604800).Scan(&total)
+	d.db.QueryRow(`SELECT COUNT(*) FROM node_metrics
+		WHERE node_url=? AND event_type=? AND event_value=1 AND timestamp > ?`,
+		nodeURL, EventSuccess, now-604800).Scan(&successes)
+	if total > 0 {
+		ss.Success = successes / total
+	}
+
+	// Bytes: sum all
+	d.db.QueryRow(`SELECT COALESCE(SUM(event_value), 0) FROM node_metrics
+		WHERE node_url=? AND event_type=?`,
+		nodeURL, EventBytes).Scan(&ss.Bytes)
+
+	// Fail check: if both latest latency and speed are 0, score = 0
+	latZero, spdZero := true, true
+	var latestLat, latestSpd int64
+	d.db.QueryRow(`SELECT COALESCE(event_value,0) FROM node_metrics
+		WHERE node_url=? AND event_type=? ORDER BY id DESC LIMIT 1`,
+		nodeURL, EventLatency).Scan(&latestLat)
+	d.db.QueryRow(`SELECT COALESCE(event_value,0) FROM node_metrics
+		WHERE node_url=? AND event_type=? ORDER BY id DESC LIMIT 1`,
+		nodeURL, EventSpeed).Scan(&latestSpd)
+	if latestLat > 0 {
+		latZero = false
+	}
+	if latestSpd > 0 {
+		spdZero = false
+	}
+
+	if latZero && spdZero {
+		ss.Score = 0
+		return ss
+	}
+
+	// Compute weighted score
+	latScore := 1.0 - min(ss.Latency/1000.0, 1.0)
+	if ss.Latency == 0 {
+		latScore = 0.5 // unknown
+	}
+	spdScore := min(ss.Speed/102400.0, 1.0)
+	hlthScore := ss.Success
+	loadScore := 1.0 // DB can't track inflight; use success as load proxy
+
+	totalScore := 0.35*latScore + 0.25*spdScore + 0.25*hlthScore + 0.15*loadScore
+	ss.Score = int32(totalScore * 10000)
+	return ss
+}
+
+// ─── Aggregation queries ────────────────────────────────────
+
+func (d *DB) GetStats() (map[string][]AggregatedStats, error) {
 	result := make(map[string][]AggregatedStats)
 	for _, p := range AllPeriods {
-		stats, err := s.getStatsForPeriod(p)
+		s, err := d.getStatsForPeriod(p)
 		if err != nil {
 			return nil, err
 		}
-		result[p.Name] = stats
+		result[p.Name] = s
 	}
 	return result, nil
 }
 
-func (s *DB) GetStatsForPeriod(key string) ([]AggregatedStats, error) {
-	for _, p := range AllPeriods {
-		if p.Name == key {
-			return s.getStatsForPeriod(p)
-		}
-	}
-	return nil, fmt.Errorf("unknown period: %s", key)
-}
-
-func (s *DB) getStatsForPeriod(p StatsPeriod) ([]AggregatedStats, error) {
-	rows, err := s.db.Query(`
-		SELECT node_url, COUNT(*), SUM(CASE WHEN success THEN 1 ELSE 0 END),
-			COALESCE(AVG(latency_ms),0), COALESCE(AVG(speed_kbps),0),
-			COALESCE(AVG(score),0), COALESCE(SUM(bytes_total),0), COALESCE(MAX(timestamp),0)
-		FROM node_metrics WHERE timestamp > ? GROUP BY node_url ORDER BY AVG(score) DESC`,
-		time.Now().Unix()-p.Seconds)
+func (d *DB) getStatsForPeriod(p StatsPeriod) ([]AggregatedStats, error) {
+	cutoff := time.Now().Unix() - p.Seconds
+	// Group by node_url from latency events (always present) + join success/bytes
+	rows, err := d.db.Query(`
+		SELECT n.node_url,
+			COUNT(*) as total,
+			COALESCE(AVG(CASE WHEN n.event_type='latency' THEN n.event_value END), 0),
+			COALESCE(AVG(CASE WHEN n.event_type='speed'   THEN n.event_value END), 0),
+			COALESCE(SUM(CASE WHEN n.event_type='bytes'   THEN n.event_value END), 0),
+			COALESCE(MAX(n.timestamp), 0)
+		FROM node_metrics n
+		WHERE n.timestamp > ? AND n.event_type IN ('latency','speed','bytes')
+		GROUP BY n.node_url
+		ORDER BY AVG(CASE WHEN n.event_type='latency' THEN n.event_value END) ASC`,
+		cutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -309,13 +387,17 @@ func (s *DB) getStatsForPeriod(p StatsPeriod) ([]AggregatedStats, error) {
 	for rows.Next() {
 		var as AggregatedStats
 		var lastUsed int64
-		if err := rows.Scan(&as.NodeURL, &as.Total, &as.Successes,
-			&as.AvgLatency, &as.AvgSpeed, &as.AvgScore, &as.TotalBytes, &lastUsed); err != nil {
+		if err := rows.Scan(&as.NodeURL, &as.Total, &as.AvgLatency, &as.AvgSpeed, &as.TotalBytes, &lastUsed); err != nil {
 			return nil, err
 		}
-		as.Failures = as.Total - as.Successes
-		if as.Total > 0 {
-			as.SuccessRate = float64(as.Successes) / float64(as.Total)
+		// Success rate from success events
+		var succTotal, succOK float64
+		d.db.QueryRow(`SELECT COUNT(*), SUM(CASE WHEN event_value=1 THEN 1 ELSE 0 END) FROM node_metrics
+			WHERE node_url=? AND event_type=? AND timestamp>?`, as.NodeURL, EventSuccess, cutoff).Scan(&succTotal, &succOK)
+		as.Successes = int(succOK)
+		as.Failures = int(succTotal - succOK)
+		if succTotal > 0 {
+			as.SuccessRate = succOK / succTotal
 		}
 		if lastUsed > 0 {
 			as.LastUsed = time.Unix(lastUsed, 0).Format(time.RFC3339)
@@ -326,16 +408,7 @@ func (s *DB) getStatsForPeriod(p StatsPeriod) ([]AggregatedStats, error) {
 	return result, rows.Err()
 }
 
-func (s *DB) PruneMetrics(retentionDays int) error {
-	cutoff := time.Now().AddDate(0, 0, -retentionDays).Unix()
-	_, err := s.db.Exec(`DELETE FROM node_metrics WHERE timestamp < ?`, cutoff)
-	if err == nil {
-		slog.Info("store: pruned old metrics", "cutoff_days", retentionDays)
-	}
-	return err
-}
-
-func (s *DB) Close() error { return s.db.Close() }
+func (d *DB) Close() error { return d.db.Close() }
 
 func boolToInt(b bool) int {
 	if b {

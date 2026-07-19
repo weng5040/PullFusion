@@ -96,7 +96,6 @@ func (h *Handler) headBlob(w http.ResponseWriter, r *http.Request, name, digest,
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
-	defer h.nodeMgr.ReleaseNode(node, true, 0, 0)
 
 	blobURL := fmt.Sprintf("%s/v2/%s/blobs/%s", node.URL, name, digest)
 	slog.Debug("head blob via node", "name", name, "node", node.DisplayName, "url", blobURL[:60])

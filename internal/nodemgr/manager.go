@@ -4,17 +4,15 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/pullfusion/pullfusion/internal/config"
 	"github.com/pullfusion/pullfusion/internal/store"
 )
 
 type Manager struct {
-	mu     sync.RWMutex
-	nodes  []*Node
-	scorer *Scorer
-	db     *store.DB
+	mu    sync.RWMutex
+	nodes []*Node
+	db    *store.DB
 }
 
 func NewManager(cfg *config.Config) *Manager {
@@ -22,12 +20,10 @@ func NewManager(cfg *config.Config) *Manager {
 }
 
 func NewManagerWithStore(cfg *config.Config, database *store.DB) *Manager {
-	m := &Manager{scorer: NewScorer(DefaultWeights()), db: database}
+	m := &Manager{db: database}
 	m.initNodes(cfg)
 	if database != nil {
 		m.loadFromDB()
-		m.warmupFromMetrics()
-		m.saveToDB()
 	}
 	slog.Info("node manager initialized", "nodes", len(m.nodes))
 	return m
@@ -49,29 +45,13 @@ func (m *Manager) loadFromDB() {
 		}
 		m.nodes = append(m.nodes, &Node{
 			URL: dn.URL, DisplayName: dn.DisplayName,
-			Enabled: dn.Enabled, Healthy: true, Targets: dn.Targets, Token: dn.Token, Tags: dn.Tags,
+			Enabled: dn.Enabled, Targets: dn.Targets,
+			Token: dn.Token, Tags: dn.Tags,
 		})
 	}
 	if len(dbNodes) > 0 {
-		slog.Info("loaded node state from database", "db_nodes", len(dbNodes))
+		slog.Info("loaded nodes from database", "count", len(dbNodes))
 	}
-}
-
-func (m *Manager) warmupFromMetrics() {
-	latest, err := m.db.LoadLatestMetrics()
-	if err != nil || len(latest) == 0 {
-		return
-	}
-	for _, n := range m.nodes {
-		r, ok := latest[n.URL]
-		if !ok {
-			continue
-		}
-		n.LatencyMs = r.LatencyMs
-		n.Healthy = r.Healthy
-		m.scorer.Score(n)
-	}
-	slog.Info("warmup: restored metrics", "nodes", len(latest))
 }
 
 func (m *Manager) saveToDB() {
@@ -79,11 +59,12 @@ func (m *Manager) saveToDB() {
 	for _, n := range m.List() {
 		records = append(records, store.NodeRecord{
 			URL: n.URL, DisplayName: n.DisplayName,
-			Enabled: n.Enabled, Targets: n.Targets, Token: n.Token, Tags: n.Tags,
+			Enabled: n.Enabled, Targets: n.Targets,
+			Token: n.Token, Tags: n.Tags,
 		})
 	}
 	if err := m.db.SaveNodes(records); err != nil {
-		slog.Warn("failed to save nodes to db", "error", err)
+		slog.Warn("failed to save nodes", "error", err)
 	}
 }
 
@@ -103,16 +84,36 @@ func (m *Manager) AddNode(node *Node) {
 			return
 		}
 	}
-	node.Healthy = true
 	m.nodes = append(m.nodes, node)
 }
 
+// GetScoredNodes returns all nodes with scores computed from DB.
+func (m *Manager) GetScoredNodes() []*Node {
+	m.mu.RLock()
+	nodes := make([]*Node, len(m.nodes))
+	copy(nodes, m.nodes)
+	m.mu.RUnlock()
+
+	for _, n := range nodes {
+		if m.db != nil {
+			ss := m.db.ComputeScore(n.URL)
+			n.Score = ss.Score
+			n.LatencyMs = ss.Latency
+			n.SpeedKBps = ss.Speed
+			n.SuccessRate = ss.Success
+			n.TotalBytes = ss.Bytes
+		}
+	}
+	return nodes
+}
+
+// SelectBest picks the node with the highest DB-computed score.
+// Only considers enabled nodes that have been tested (score > 0).
 func (m *Manager) SelectBest(registry string) *Node {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	var candidates []*Node
 	for _, n := range m.nodes {
-		if !n.Enabled || !n.Healthy {
+		if !n.Enabled {
 			continue
 		}
 		tm := len(n.Targets) == 0
@@ -126,36 +127,42 @@ func (m *Manager) SelectBest(registry string) *Node {
 			candidates = append(candidates, n)
 		}
 	}
-	sel := m.scorer.SelectBest(candidates)
-	if sel != nil {
-		sel.IncrInflight()
-		slog.Info("node selected", "name", sel.DisplayName, "score", sel.Score, "inflight", sel.InFlight, "latency_ms", sel.LatencyMs)
+	m.mu.RUnlock()
+
+	var best *Node
+	var bestScore int32
+	for _, n := range candidates {
+		if m.db != nil {
+			ss := m.db.ComputeScore(n.URL)
+			n.Score = ss.Score
+			if ss.Score >= bestScore {
+				bestScore = ss.Score
+				best = n
+			}
+		} else if best == nil {
+			best = n
+		}
 	}
-	return sel
+	if best != nil {
+		slog.Info("node selected", "name", best.DisplayName, "score", best.Score)
+	}
+	return best
 }
 
-func (m *Manager) ReleaseNode(node *Node, success bool, latencyMs, speedKBps int64) {
-	if node == nil {
+// RecordDownload writes all event metrics to the DB after a download completes.
+func (m *Manager) RecordDownload(nodeURL string, latencyMs, speedKBps, byteKB int64, success bool) {
+	if m.db == nil {
 		return
 	}
-	node.DecrInflight()
-	if success {
-		node.RecordSuccess(latencyMs)
-	} else {
-		node.RecordFailure(latencyMs)
+	if err := m.db.InsertDownloadEvents(nodeURL, latencyMs, speedKBps, byteKB, success); err != nil {
+		slog.Warn("record download failed", "url", nodeURL, "error", err)
+		return
 	}
-	m.scorer.Score(node)
-
-	if m.db != nil {
-		r := store.MetricRecord{
-			NodeURL: node.URL, Timestamp: time.Now(),
-			LatencyMs: latencyMs, SpeedKBps: speedKBps,
-			Success: success, Score: node.Score,
-			InFlight: node.InFlight, Healthy: node.Healthy,
-		}
-		m.db.InsertMetric(r)
-		m.saveToDB()
+	status := "success"
+	if !success {
+		status = "failure"
 	}
+	slog.Info("download recorded", "url", nodeURL[:min(len(nodeURL), 50)], "status", status, "latency_ms", latencyMs, "speed_kbps", speedKBps)
 }
 
 func (m *Manager) GetHealthStatus() (int, int) {
@@ -163,7 +170,7 @@ func (m *Manager) GetHealthStatus() (int, int) {
 	defer m.mu.RUnlock()
 	h := 0
 	for _, n := range m.nodes {
-		if n.Healthy {
+		if n.Enabled {
 			h++
 		}
 	}
@@ -188,28 +195,23 @@ func (m *Manager) ReloadNodes(rawCfg interface{}) {
 	m.initNodes(cfg)
 }
 
-func (m *Manager) GetScoredNodes() []*Node {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, n := range m.nodes {
-		m.scorer.Score(n)
+func (m *Manager) PersistNodes() {
+	if m.db != nil {
+		m.saveToDB()
 	}
-	r := make([]*Node, len(m.nodes))
-	copy(r, m.nodes)
-	return r
 }
 
 func (m *Manager) initNodes(cfg *config.Config) {
 	for _, mirror := range cfg.Mirrors.Dockerhub {
 		m.nodes = append(m.nodes, &Node{
 			URL: mirror.URL, DisplayName: mirror.DisplayName,
-			Enabled: true, Healthy: true, Targets: []string{"dockerhub"}, Token: mirror.Token,
+			Enabled: true, Targets: []string{"dockerhub"}, Token: mirror.Token,
 		})
 	}
 	for _, mirror := range cfg.Mirrors.Ghcr {
 		m.nodes = append(m.nodes, &Node{
 			URL: mirror.URL, DisplayName: mirror.DisplayName,
-			Enabled: true, Healthy: true, Targets: []string{"ghcr"}, Token: mirror.Token,
+			Enabled: true, Targets: []string{"ghcr"}, Token: mirror.Token,
 		})
 	}
 	slog.Info(fmt.Sprintf("loaded %d nodes from config", len(m.nodes)))

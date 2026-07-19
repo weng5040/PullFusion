@@ -71,7 +71,6 @@ func Load(mgr *nodemgr.Manager, cfg *config.Config) (int, error) {
 			URL:         e.URL,
 			DisplayName: e.DisplayName,
 			Enabled:     true,
-			Healthy:     true,
 			Targets:     e.Targets,
 			Token:       e.Token,
 		})

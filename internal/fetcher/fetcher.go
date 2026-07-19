@@ -143,7 +143,6 @@ func MergeIntoManager(items []ProxyItem, mgr *nodemgr.Manager, existing map[stri
 			URL:         item.URL,
 			DisplayName: displayName,
 			Enabled:     true,
-			Healthy:     true,
 			Targets:     targets,
 			Tags:        tagEntries,
 		})
