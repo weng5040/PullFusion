@@ -29,7 +29,7 @@ func NewConnectProxy(cfg *config.Config, deps *Dependencies) *http.Server {
 
 	r.Handle("/metrics", metrics.Handler())
 
-	adminAPI := admin.NewAPI(deps.NodeMgr)
+	adminAPI := admin.NewAPI(deps.NodeMgr, nil)
 	r.Get("/healthz", healthzHandler(deps))
 	r.Get("/dashboard", adminAPI.ServeDashboard)
 	r.Get("/", adminAPI.ServeDashboard)

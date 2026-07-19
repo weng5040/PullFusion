@@ -13,6 +13,8 @@ import (
 
 	"github.com/pullfusion/pullfusion/internal/auth"
 	"github.com/pullfusion/pullfusion/internal/admin"
+	"github.com/pullfusion/pullfusion/internal/fetcher"
+	"github.com/pullfusion/pullfusion/internal/persist"
 	"github.com/pullfusion/pullfusion/internal/cache"
 	"github.com/pullfusion/pullfusion/internal/config"
 	"github.com/pullfusion/pullfusion/internal/downloader"
@@ -56,6 +58,22 @@ func main() {
 	}
 
 	nodeMgr := nodemgr.NewManager(cfg)
+
+	// Load persisted nodes, auto-fetch if empty
+	loaded, _ := persist.Load(nodeMgr, cfg)
+	if loaded == 0 {
+		slog.Info("no persisted nodes, auto-fetching from status.anye.xyz")
+		fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		saveFn := func() error { return persist.Save(nodeMgr, cfg) }
+		result, err := fetcher.FetchAndMerge(fetchCtx, nodeMgr, saveFn)
+		fetchCancel()
+		if err != nil {
+			slog.Warn("auto-fetch failed", "error", err)
+		} else {
+			slog.Info("auto-fetch complete", "added", result.Added, "total", result.Total)
+		}
+	}
+
 	nodeMgr.StartSpeedTest(context.Background())
 
 	configWatcher, err := config.StartWatcher(*configPath, cfg, nodeMgr)
@@ -72,7 +90,7 @@ func main() {
 		cfg.Downloader.NodeFailThreshold,
 	)
 
-	api := admin.NewAPI(nodeMgr)
+	api := admin.NewAPI(nodeMgr, func() error { return persist.Save(nodeMgr, cfg) })
 
 	deps := &server.Dependencies{
 		Config:     cfg,

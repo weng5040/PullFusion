@@ -1,12 +1,6 @@
 mirrors:
-  dockerhub:
-    - url: https://dockerproxy.net
-      priority: 1
-      display_name: dockerproxy
-  ghcr:
-    - url: https://ghcr.nju.edu.cn
-      priority: 1
-      display_name: nju-ghcr
+  dockerhub: []
+  ghcr: []
 
 proxies:
   enabled: false
@@ -34,7 +28,5 @@ downloader:
   cache_max_size: 10737418240
 
 builtin_mirrors:
-  dockerhub:
-    - https://dockerproxy.net
-  ghcr:
-    - https://ghcr.nju.edu.cn
+  dockerhub: []
+  ghcr: []

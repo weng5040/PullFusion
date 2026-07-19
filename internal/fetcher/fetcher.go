@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -11,7 +12,10 @@ import (
 	"github.com/pullfusion/pullfusion/internal/nodemgr"
 )
 
-// ProxyItem 状态 API 返回的节点项
+// defaultTypes are the registry types to fetch from status.anye.xyz
+var defaultTypes = []string{"hub", "ghcr"}
+
+// ProxyItem is a single mirror entry from status.anye.xyz
 type ProxyItem struct {
 	Name       string `json:"name"`
 	URL        string `json:"url"`
@@ -20,37 +24,32 @@ type ProxyItem struct {
 	Status     string `json:"status"`
 }
 
-// FetchResult 抓取合并结果
+// FetchResult summarizes a fetch operation.
 type FetchResult struct {
-	Fetched int      `json:"fetched"` // 本次抓取到的原始数量
-	Added   int      `json:"added"`   // 实际新增数量
-	Total   int      `json:"total"`   // 最终总节点数
-	Nodes   []string `json:"nodes"`   // 新增节点名称列表
-	Elapsed string   `json:"elapsed"` // 耗时
+	Fetched int      `json:"fetched"`
+	Added   int      `json:"added"`
+	Total   int      `json:"total"`
+	Nodes   []string `json:"nodes"`
+	Elapsed string   `json:"elapsed"`
 }
 
-var httpClient = &http.Client{Timeout: 15 * time.Second}
-
-// FetchFromStatus 从 status.anye.xyz 抓取免费节点
+// FetchFromStatus fetches mirror nodes from status.anye.xyz.
 func FetchFromStatus(ctx context.Context, types []string) ([]ProxyItem, error) {
-	var allItems []ProxyItem
-
+	var all []ProxyItem
 	for _, t := range types {
 		url := fmt.Sprintf("https://status.anye.xyz/status/%s", t)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			return nil, fmt.Errorf("create request for %s: %w", t, err)
 		}
-		req.Header.Set("Accept", "application/json")
 
-		resp, err := httpClient.Do(req)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("fetch %s: %w", t, err)
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
 			return nil, fmt.Errorf("fetch %s: HTTP %d", t, resp.StatusCode)
 		}
 
@@ -58,88 +57,84 @@ func FetchFromStatus(ctx context.Context, types []string) ([]ProxyItem, error) {
 		if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
 			return nil, fmt.Errorf("decode %s: %w", t, err)
 		}
-
-		allItems = append(allItems, items...)
+		all = append(all, items...)
 	}
-
-	return allItems, nil
+	return all, nil
 }
 
-// targetMap 类型到默认 targets 的映射
-var targetMap = map[string][]string{
-	"hub":  {"dockerhub"},
-	"ghcr": {"ghcr"},
-}
-
-// MergeIntoManager 过滤合并到节点管理器
-// 过滤条件：selectable=true && access=public && status=online
+// MergeIntoManager filters and imports nodes into the node manager.
 func MergeIntoManager(items []ProxyItem, mgr *nodemgr.Manager, existing map[string]bool) FetchResult {
 	start := time.Now()
-	result := FetchResult{
-		Fetched: len(items),
-	}
+	var result FetchResult
 
 	for _, item := range items {
-		// 过滤：仅保留可选、公开、在线节点
+		result.Fetched++
 		if !item.Selectable || item.Access != "public" || item.Status != "online" {
 			continue
 		}
 
-		// 去重：URL 已在现有节点中
+		item.URL = strings.TrimRight(item.URL, "/")
 		if existing[item.URL] {
 			continue
 		}
+		existing[item.URL] = true
 
-		targets := determineTargets(item)
-		node := &nodemgr.Node{
+		targets := determineTargets(item.Name, item.URL)
+		mgr.AddNode(&nodemgr.Node{
 			URL:         item.URL,
 			DisplayName: item.Name,
 			Type:        nodemgr.NodeTypeMirror,
-			Priority:    50, // 低于手动配置节点
+			Priority:    50,
 			Enabled:     true,
 			Healthy:     true,
 			Targets:     targets,
-		}
-
-		mgr.AddNode(node)
-		existing[item.URL] = true
+		})
 		result.Added++
 		result.Nodes = append(result.Nodes, item.Name)
 	}
 
-	nodes := mgr.List()
-	result.Total = len(nodes)
-	result.Elapsed = time.Since(start).Round(time.Millisecond).String()
-
+	result.Total = len(mgr.List())
+	result.Elapsed = time.Since(start).String()
+	slog.Info("fetcher: merged nodes", "fetched", result.Fetched, "added", result.Added, "total", result.Total)
 	return result
 }
 
-// determineTargets 根据名称/URL 推断目标 registry 类型
-func determineTargets(item ProxyItem) []string {
-	lowerName := strings.ToLower(item.Name)
-	lowerURL := strings.ToLower(item.URL)
-	if strings.Contains(lowerName, "ghcr") || strings.Contains(lowerURL, "ghcr") {
-		return []string{"ghcr"}
-	}
-	return []string{"dockerhub"}
-}
+// FetchAndMerge fetches from status.anye.xyz and merges into the node manager.
+// Set persist to true to enable Save callback after fetch.
+type SaveFunc func(*nodemgr.Manager, interface{}) error
 
-// defaultTypes 默认抓取的节点类型
-var defaultTypes = []string{"hub", "ghcr"}
-
-// FetchAndMerge 入口函数：从远程源抓取并合并到管理器
-func FetchAndMerge(ctx context.Context, mgr *nodemgr.Manager) (*FetchResult, error) {
-	// 构建现有节点 URL 集合用于去重
-	existing := make(map[string]bool)
-	for _, n := range mgr.List() {
-		existing[n.URL] = true
-	}
-
+func FetchAndMerge(ctx context.Context, mgr *nodemgr.Manager, saveFn func() error) (FetchResult, error) {
 	items, err := FetchFromStatus(ctx, defaultTypes)
 	if err != nil {
-		return nil, err
+		return FetchResult{}, err
+	}
+
+	existing := make(map[string]bool)
+	for _, n := range mgr.List() {
+		existing[strings.TrimRight(n.URL, "/")] = true
 	}
 
 	result := MergeIntoManager(items, mgr, existing)
-	return &result, nil
+
+	if saveFn != nil && result.Added > 0 {
+		if err := saveFn(); err != nil {
+			slog.Warn("persist after fetch failed", "error", err)
+		}
+	}
+
+	return result, nil
+}
+
+// determineTargets guesses the registry targets from the node name/URL.
+func determineTargets(name, url string) []string {
+	nameLower := strings.ToLower(name)
+	urlLower := strings.ToLower(url)
+
+	if strings.Contains(nameLower, "ghcr") || strings.Contains(urlLower, "ghcr") {
+		return []string{"ghcr"}
+	}
+	if strings.Contains(nameLower, "gcr") || strings.Contains(urlLower, "gcr.io") {
+		return []string{"gcr"}
+	}
+	return []string{"dockerhub"}
 }

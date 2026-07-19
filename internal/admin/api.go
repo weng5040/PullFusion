@@ -31,6 +31,7 @@ type DownloadRecord struct {
 type API struct {
 	nodeMgr   *nodemgr.Manager
 	reloader  ReloadFunc
+	saveFn    func() error
 	startTime time.Time
 
 	dlLogMu sync.Mutex
@@ -38,7 +39,7 @@ type API struct {
 }
 
 // NewAPI 创建管理 API
-func NewAPI(mgr *nodemgr.Manager) *API {
+func NewAPI(mgr *nodemgr.Manager, saveFn func() error) *API {
 	return &API{
 		nodeMgr:   mgr,
 		startTime: time.Now(),
@@ -139,7 +140,7 @@ func (a *API) TestNode(w http.ResponseWriter, r *http.Request) {
 
 // FetchNodes POST /admin/nodes/fetch — 从远程源抓取免费节点
 func (a *API) FetchNodes(w http.ResponseWriter, r *http.Request) {
-	result, err := fetcher.FetchAndMerge(r.Context(), a.nodeMgr)
+	result, err := fetcher.FetchAndMerge(r.Context(), a.nodeMgr, a.saveFn)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
