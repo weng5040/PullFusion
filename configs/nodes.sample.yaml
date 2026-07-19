@@ -3,7 +3,7 @@ mirrors:
     - url: https://dockerproxy.net
       priority: 2
       display_name: dockerproxy
-    - url: https://registry-1.docker.io
+    - url: https://dockerproxy.net
       priority: 1
       display_name: dockerhub
   ghcr:

@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"regexp"
 	"time"
-	"context"
 
 	"github.com/pullfusion/pullfusion/internal/config"
 	"github.com/pullfusion/pullfusion/internal/downloader"
@@ -45,12 +44,9 @@ func (h *Handler) SetRecorder(r DownloadRecorder) {
 
 // V2Ping GET/HEAD /v2/ — 版本握手
 func (h *Handler) V2Ping(w http.ResponseWriter, r *http.Request) {
-	// Never return 401 - PullFusion handles auth internally
-	if h.tokenSvc != nil {
-		go h.tokenSvc.GetToken(context.Background(), "dockerhub", "library/alpine")
-	}
 	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Www-Authenticate", "Bearer realm=\"https://docker.1ms.run/openapi/v1/auth/token\",service=\"docker.1ms.run\"")
+	w.WriteHeader(http.StatusUnauthorized)
 }
 
 // ServeHTTP 路由分发（用于 CONNECT 隧道内和 catch-all 路由）
