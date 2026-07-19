@@ -34,3 +34,4 @@ docker/cache/
 *.local.yaml
 data/*.key
 data/*.crt
+data/*.pem

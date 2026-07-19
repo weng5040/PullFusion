@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -54,23 +55,44 @@ func NewRegistryServer(cfg *config.Config, deps *Dependencies) (*http.Server, er
 	r.Get("/healthz", healthzHandler(deps))
 
 	// TLS 证书处理
+	certFile := "data/cert.pem"
+	if _, err := os.Stat("data"); os.IsNotExist(err) { certFile = "/opt/pullfusion/data/cert.pem" }
+	keyFile := "data/key.pem"
+
 	var tlsConfig *tls.Config
+
+	// 1. Try configured cert first
 	if cfg.Server.TLS.Cert != "" && cfg.Server.TLS.Key != "" {
 		cert, err := tls.LoadX509KeyPair(cfg.Server.TLS.Cert, cfg.Server.TLS.Key)
-		if err != nil {
-			slog.Warn("failed to load cert, falling back to self-signed", "error", err)
-		} else {
+		if err == nil {
 			tlsConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
+			slog.Info("using configured TLS cert", "cert", cfg.Server.TLS.Cert)
 		}
 	}
+
+	// 2. Try saved self-signed cert from previous run
 	if tlsConfig == nil {
-	// 自动生成自签证书
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err == nil {
+			tlsConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
+			slog.Info("using saved self-signed cert")
+		}
+	}
+
+	// 3. Generate new self-signed cert, save to disk
+	if tlsConfig == nil {
 		cert, err := tlsutil.GenerateSelfSigned(cfg.Server.RegistryDomain)
 		if err != nil {
 			return nil, err
 		}
 		tlsConfig = &tls.Config{Certificates: []tls.Certificate{cert}}
 		slog.Info("generated self-signed certificate", "domain", cfg.Server.RegistryDomain)
+		// Save to disk for reuse and Docker cert trust
+		if err := tlsutil.SaveCertAndKey(cert, certFile, keyFile); err != nil {
+			slog.Warn("failed to save cert", "error", err)
+		} else {
+			slog.Info("saved self-signed cert", "cert", certFile, "key", keyFile)
+		}
 	}
 
 	srv := &http.Server{

@@ -5,8 +5,10 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
+	"os"
+	"crypto/x509/pkix"
 	"math/big"
 	"time"
 )
@@ -49,4 +51,21 @@ func GenerateSelfSigned(domain string) (tls.Certificate, error) {
 	})
 
 	return tls.X509KeyPair(certPEM, keyPEM)
+}
+
+// SaveCertAndKey writes the cert DER and key PEM to disk.
+func SaveCertAndKey(cert tls.Certificate, certFile, keyFile string) error {
+	if len(cert.Certificate) == 0 {
+		return fmt.Errorf("empty certificate")
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})
+	if err := os.WriteFile(certFile, certPEM, 0644); err != nil {
+		return err
+	}
+	keyBytes, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
+	if err != nil {
+		return err
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyBytes})
+	return os.WriteFile(keyFile, keyPEM, 0600)
 }
